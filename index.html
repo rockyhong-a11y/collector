@@ -430,17 +430,49 @@ function parseUserKeywords() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  DATE HELPERS
+//  DATE UTILITIES  — 모든 스크래퍼 공통 날짜 처리
 // ═══════════════════════════════════════════════════════════════
-function parseDcDate(s) {
-  s = s.trim();
-  if (/^\d{1,2}:\d{2}$/.test(s)) return today();
-  let m = s.match(/^(\d{2})[./-](\d{2})[./-](\d{2})/);
-  if (m) return `20${m[1]}-${m[2]}-${m[3]}`;
-  m = s.match(/^(20\d{2})[./-](\d{2})[./-](\d{2})/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-  return '';
-}
+const DATE = {
+  // 다양한 형식을 YYYY-MM-DD로 파싱, 실패 시 null
+  parse(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return null;
+    const yr = new Date().getFullYear();
+
+    // HH:MM[:SS] — 오늘 게시물 (DC인사이드, 공식커뮤)
+    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) return today();
+
+    // YYYY-MM-DD / YYYY.MM.DD — 4자리 연도 (우선 매칭)
+    let m = s.match(/^(20\d{2})[-.\\/](\d{2})[-.\\/](\d{2})/);
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+
+    // YY.MM.DD / YY-MM-DD — 2자리 연도
+    m = s.match(/^(\d{2})[-.\\/](\d{2})[-.\\/](\d{2})/);
+    if (m) return `20${m[1]}-${m[2]}-${m[3]}`;
+
+    // MM.DD / MM-DD — 당해연도 게시물 (DC 올해 날짜)
+    m = s.match(/^(\d{1,2})[-.\\/](\d{2})$/);
+    if (m) return `${yr}-${m[1].padStart(2,'0')}-${m[2]}`;
+
+    // YYYYMMDD — 네이버 postdate 형식
+    const digits = s.replace(/\D/g, '');
+    if (digits.length === 8 && digits !== '00000000') {
+      return `${digits.slice(0,4)}-${digits.slice(4,6)}-${digits.slice(6,8)}`;
+    }
+
+    return null;
+  },
+
+  // dateStr이 [from, to] 범위 내에 있는지 확인
+  inRange(dateStr, from, to) {
+    return !!dateStr && dateStr >= from && dateStr <= to;
+  },
+
+  // 합리성 검사 — 미래 날짜이거나 2010년 이전이면 비정상 데이터로 판단
+  isReasonable(dateStr) {
+    return !!dateStr && dateStr >= '2010-01-01' && dateStr <= today();
+  },
+};
 
 // ═══════════════════════════════════════════════════════════════
 //  DC인사이드 SCRAPER
@@ -477,10 +509,10 @@ async function scrapeDcinside(siteKey, dateFrom, dateTo, log) {
       if (!title) continue;
 
       const dateM = row.match(/<td[^>]*class="[^"]*gall_date[^"]*"[^>]*>([^<\n]+)</);
-      const dateStr = dateM ? parseDcDate(dateM[1]) : '';
-      if (!dateStr) continue;
+      const dateStr = dateM ? DATE.parse(dateM[1]) : null;
+      if (!dateStr || !DATE.isReasonable(dateStr)) continue;
       if (dateStr < oldestDate) oldestDate = dateStr;
-      if (dateStr < dateFrom || dateStr > dateTo) continue;
+      if (!DATE.inRange(dateStr, dateFrom, dateTo)) continue;
 
       const viewM = row.match(/<td[^>]*class="[^"]*gall_count[^"]*"[^>]*>(\d+)</);
       posts.push({ title, url: postUrl, date: dateStr, views: viewM?viewM[1]:'0',
@@ -525,10 +557,10 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log) {
         if (!title) continue;
 
         const dateM = block.match(/<em class="t_date"[^>]*>([\s\S]*?)<\/em>/);
-        const dateStr = dateM ? dateM[1].trim().slice(0,10) : '';
-        if (!dateStr) continue;
+        const dateStr = dateM ? DATE.parse(dateM[1].trim()) : null;
+        if (!dateStr || !DATE.isReasonable(dateStr)) continue;
         if (dateStr < oldestDate) oldestDate = dateStr;
-        if (dateStr < dateFrom || dateStr > dateTo) continue;
+        if (!DATE.inRange(dateStr, dateFrom, dateTo)) continue;
 
         let bodyText = '', images = [];
         try {
@@ -587,7 +619,11 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log) {
       let oldestDate = '9999', pageCount = 0;
       for (const item of items) {
         if (typeof item !== 'object') continue;
-        const dateStr = (item.regdate||'').slice(0,10);
+        const dateStr = DATE.parse(item.regdate);
+        if (!dateStr || !DATE.isReasonable(dateStr)) continue;
+        if (dateStr < oldestDate) oldestDate = dateStr;
+        if (!DATE.inRange(dateStr, dateFrom, dateTo)) continue;
+
         const postId  = item.idx || '';
         const title   = esc(item.title||'');
         const bidx    = item.board_idx || boardIdx;
@@ -598,10 +634,6 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log) {
         const imgs    = [...bodyHtml.matchAll(/<img[^>]*src=["']([^"']+)["']/g)].map(m=>m[1])
                         .filter(u=>u.includes('withhive.com')).slice(0,2);
         if (thumb.includes('withhive.com')) imgs.unshift(thumb);
-
-        if (!dateStr) continue;
-        if (dateStr < oldestDate) oldestDate = dateStr;
-        if (dateStr < dateFrom || dateStr > dateTo) continue;
         posts.push({ title, url:postUrl, date:dateStr, views:String(item.view_count||0),
                      source:'MLB라이벌 공식커뮤', game:'MLB라이벌', board:boardName,
                      body:bodyText, images:imgs.slice(0,2) });
@@ -631,12 +663,6 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
   const seen      = new Set();
   const cleanHtml = s => s.replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
 
-  const parseDate = pd => {
-    const d = String(pd || '').replace(/\D/g, '');
-    if (d.length !== 8 || d === '00000000') return null;
-    return `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
-  };
-
   for (const kw of keywords) {
     let start = 1;
     while (start < NAVER_MAX_START) {
@@ -649,13 +675,22 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
         if (!items.length) break;
 
         let hitOldDate = false;
+        let skipUnreasonable = 0, skipRange = 0;
+
         for (const item of items) {
           if (seen.has(item.link)) continue;
           seen.add(item.link);
-          const dateStr = parseDate(item.postdate);
-          // 날짜 확인 가능 → 범위 초과 시 조기 종료 신호
-          if (dateStr && dateStr < dateFrom) { hitOldDate = true; continue; }
-          if (dateStr && dateStr > dateTo)   continue;
+
+          // [1차 검증] 날짜 파싱 + 합리성 검사 (서버 필터 통과 후 클라이언트 재확인)
+          const dateStr = DATE.parse(item.postdate);
+          if (dateStr && !DATE.isReasonable(dateStr)) { skipUnreasonable++; continue; }
+
+          // [2차 검증] 수집 기간 범위 확인 (서버 필터 이중 보장)
+          if (dateStr) {
+            if (dateStr < dateFrom) { hitOldDate = true; skipRange++; continue; }
+            if (dateStr > dateTo)   { skipRange++; continue; }
+          }
+
           posts.push({
             title:  cleanHtml(item.title||''),
             url:    item.link||'',
@@ -667,6 +702,10 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
             images: [],
           });
         }
+
+        if (skipUnreasonable || skipRange)
+          log(`  → [검증] 비정상날짜 ${skipUnreasonable}건 · 범위외 ${skipRange}건 제외`, 'warn');
+
         // dateFrom 이전 항목을 만났거나 마지막 페이지면 중단
         if (hitOldDate || items.length < NAVER_PAGE_SIZE) break;
         start += NAVER_PAGE_SIZE;

@@ -25,12 +25,16 @@ export default async function handler(req, res) {
     });
     const data = await r.json();
 
-    // postdate가 확인되는 항목에 한해 서버 단에서 날짜 범위 필터
-    if (data.items && (dateFrom || dateTo)) {
+    // 서버 단 날짜 필터 — postdate가 확인되는 항목만 적용
+    if (data.items) {
+      const now = new Date().toISOString().slice(0, 10);
       data.items = data.items.filter(item => {
         const pd = String(item.postdate || '').replace(/\D/g, '');
         if (pd.length !== 8 || pd === '00000000') return true; // 날짜 불명 → 통과
         const d = `${pd.slice(0, 4)}-${pd.slice(4, 6)}-${pd.slice(6, 8)}`;
+        // 합리성 검사: 2010년 이전이거나 미래 날짜 제거
+        if (d < '2010-01-01' || d > now) return false;
+        // 수집 기간 범위 필터
         if (dateFrom && d < dateFrom) return false;
         if (dateTo   && d > dateTo)   return false;
         return true;
