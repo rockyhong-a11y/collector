@@ -621,40 +621,58 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log) {
 //  - customKeywords: 사용자 검색어 (없으면 기본 키워드 사용)
 // ═══════════════════════════════════════════════════════════════
 const NAVER_DEFAULT_KW = ['버그','오류','에러','크래시','강종','튕김','안됨','건의','후기','패치'];
+const NAVER_PAGE_SIZE  = 100;
+const NAVER_MAX_START  = 301; // 최대 300건 (start 1·101·201)
 
 async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, log, statusKey, customKeywords=[]) {
   log(`네이버카페 [${cafeName}] API 수집 시작 (cafeid:${cafeId})`, 'info');
-  const keywords = customKeywords.length > 0 ? customKeywords : NAVER_DEFAULT_KW;
-  const posts = [];
-  const seen  = new Set();
+  const keywords  = customKeywords.length > 0 ? customKeywords : NAVER_DEFAULT_KW;
+  const posts     = [];
+  const seen      = new Set();
   const cleanHtml = s => s.replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
 
+  const parseDate = pd => {
+    const d = String(pd || '').replace(/\D/g, '');
+    if (d.length !== 8 || d === '00000000') return null;
+    return `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
+  };
+
   for (const kw of keywords) {
-    try {
-      const params = new URLSearchParams({ keyword: kw, cafeId, display: 100 });
-      const res = await fetch('/api/naver?' + params);
-      if (!res.ok) { log(`  → API 오류 (${res.status})`, 'warn'); continue; }
-      const data = await res.json();
-      for (const item of (data.items || [])) {
-        if (seen.has(item.link)) continue;
-        seen.add(item.link);
-        const pd = String(item.postdate || '').replace(/\D/g, '');
-        const hasDate = pd.length === 8 && pd !== '00000000';
-        const dateStr = hasDate ? `${pd.slice(0,4)}-${pd.slice(4,6)}-${pd.slice(6,8)}` : null;
-        // 날짜가 확인된 항목만 범위 필터 적용, 날짜 불명 항목은 통과
-        if (dateStr && (dateStr < dateFrom || dateStr > dateTo)) continue;
-        posts.push({
-          title:  cleanHtml(item.title||''),
-          url:    item.link||'',
-          date:   dateStr || today(),
-          views:  '0',
-          source: `네이버카페(${cafeName})`,
-          game:   gameName,
-          body:   cleanHtml(item.description||''),
-          images: [],
-        });
-      }
-    } catch(e) { log(`  → 키워드 "${kw}" 오류: ${e.message}`, 'warn'); }
+    let start = 1;
+    while (start < NAVER_MAX_START) {
+      try {
+        const params = new URLSearchParams({ keyword: kw, cafeId, display: NAVER_PAGE_SIZE, start, dateFrom, dateTo });
+        const res = await fetch('/api/naver?' + params);
+        if (!res.ok) { log(`  → API 오류 (${res.status})`, 'warn'); break; }
+        const data = await res.json();
+        const items = data.items || [];
+        if (!items.length) break;
+
+        let hitOldDate = false;
+        for (const item of items) {
+          if (seen.has(item.link)) continue;
+          seen.add(item.link);
+          const dateStr = parseDate(item.postdate);
+          // 날짜 확인 가능 → 범위 초과 시 조기 종료 신호
+          if (dateStr && dateStr < dateFrom) { hitOldDate = true; continue; }
+          if (dateStr && dateStr > dateTo)   continue;
+          posts.push({
+            title:  cleanHtml(item.title||''),
+            url:    item.link||'',
+            date:   dateStr || today(),
+            views:  '0',
+            source: `네이버카페(${cafeName})`,
+            game:   gameName,
+            body:   cleanHtml(item.description||''),
+            images: [],
+          });
+        }
+        // dateFrom 이전 항목을 만났거나 마지막 페이지면 중단
+        if (hitOldDate || items.length < NAVER_PAGE_SIZE) break;
+        start += NAVER_PAGE_SIZE;
+        await sleep(200);
+      } catch(e) { log(`  → 키워드 "${kw}" 오류: ${e.message}`, 'warn'); break; }
+    }
     await sleep(150);
   }
 
