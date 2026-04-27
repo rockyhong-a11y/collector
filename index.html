@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>⚾ 야구 게임 커뮤니티 수집 툴</title>
+<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+<style>
+/* ── Reset & Base ─────────────────────────────────────────── */
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI','Malgun Gothic',Arial,sans-serif;background:#0d1117;color:#e6edf3;min-height:100vh;font-size:14px}
+a{color:#79c0ff;text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* ── Header ──────────────────────────────────────────────── */
+header{background:linear-gradient(135deg,#0d2137 0%,#1a3a5c 100%);padding:18px 32px;display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #2d5a8a;position:sticky;top:0;z-index:100}
+.header-left{display:flex;align-items:center;gap:14px}
+.header-left h1{font-size:20px;font-weight:700;color:#58a6ff;letter-spacing:-.3px}
+.badge{font-size:11px;color:#8b949e;background:#161b22;border:1px solid #30363d;padding:3px 10px;border-radius:12px}
+.header-right{font-size:12px;color:#6e7681}
+
+/* ── Layout ──────────────────────────────────────────────── */
+.container{max-width:980px;margin:28px auto;padding:0 20px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:640px){.grid-2{grid-template-columns:1fr}}
+
+/* ── Card ────────────────────────────────────────────────── */
+.card{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:22px;margin-bottom:16px}
+.card-title{font-size:13px;font-weight:600;color:#58a6ff;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.card-title::before{content:'';display:block;width:3px;height:14px;background:#58a6ff;border-radius:2px;flex-shrink:0}
+
+/* ── Form controls ───────────────────────────────────────── */
+.field{display:flex;flex-direction:column;gap:6px}
+label.field-label{font-size:12px;color:#8b949e}
+input[type=date]{background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:9px 12px;border-radius:8px;font-size:13px;width:100%;transition:border-color .2s}
+input[type=date]:focus{outline:none;border-color:#58a6ff;box-shadow:0 0 0 3px rgba(88,166,255,.15)}
+
+/* ── Site checkboxes ─────────────────────────────────────── */
+.site-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px}
+.site-item{display:flex;align-items:flex-start;gap:10px;background:#0d1117;padding:11px 14px;border-radius:8px;border:1px solid #30363d;cursor:pointer;transition:border-color .2s,background .2s;user-select:none}
+.site-item:hover{border-color:#58a6ff;background:#0d1f35}
+.site-item.checked{border-color:#1f6feb;background:#0d1f35}
+.site-item input[type=checkbox]{accent-color:#58a6ff;width:15px;height:15px;margin-top:1px;flex-shrink:0;cursor:pointer}
+.site-label{display:flex;flex-direction:column;gap:2px}
+.site-label strong{font-size:13px;color:#e6edf3}
+.site-label small{font-size:11px;color:#6e7681}
+
+/* ── Category buttons ────────────────────────────────────── */
+.cat-row{display:flex;gap:8px;flex-wrap:wrap}
+.cat-btn{padding:7px 16px;border-radius:20px;border:1.5px solid #30363d;background:transparent;color:#8b949e;cursor:pointer;font-size:12px;font-weight:500;transition:all .2s}
+.cat-btn:hover{border-color:#58a6ff;color:#58a6ff}
+.cat-btn.on{border-color:#58a6ff;color:#58a6ff;background:rgba(88,166,255,.1)}
+
+/* ── Start button ────────────────────────────────────────── */
+.btn-start{width:100%;padding:14px;background:linear-gradient(135deg,#1f6feb,#388bfd);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:opacity .2s,transform .1s;letter-spacing:.2px}
+.btn-start:hover:not(:disabled){opacity:.9;transform:translateY(-1px)}
+.btn-start:active:not(:disabled){transform:translateY(0)}
+.btn-start:disabled{opacity:.45;cursor:not-allowed;transform:none}
+
+/* ── Progress ────────────────────────────────────────────── */
+.progress-section{display:none}
+.prog-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.prog-status{font-size:13px;font-weight:500}
+.prog-count{font-size:12px;color:#8b949e}
+.prog-track{background:#21262d;border-radius:6px;height:6px;overflow:hidden;margin-bottom:12px}
+.prog-fill{height:100%;background:linear-gradient(90deg,#1f6feb,#388bfd,#56d364);transition:width .4s ease;border-radius:6px;width:0%}
+.log-box{background:#010409;border:1px solid #21262d;border-radius:8px;padding:12px 14px;height:200px;overflow-y:auto;font-size:11px;font-family:'Consolas','SF Mono',monospace;line-height:1.6}
+.log-line{display:flex;gap:8px}
+.log-time{color:#484f58;flex-shrink:0}
+.log-msg{color:#7ee787}
+.log-msg.warn{color:#e3b341}
+.log-msg.err{color:#f85149}
+.log-msg.info{color:#79c0ff}
+
+/* ── Results ─────────────────────────────────────────────── */
+.results-section{display:none}
+.stats-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.stat-box{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:10px 18px;text-align:center;flex:1;min-width:90px}
+.stat-box .num{font-size:24px;font-weight:700;color:#58a6ff;line-height:1}
+.stat-box .lbl{font-size:11px;color:#6e7681;margin-top:4px}
+.table-scroll{max-height:420px;overflow-y:auto;border-radius:8px;border:1px solid #30363d}
+table{width:100%;border-collapse:collapse;font-size:12px}
+thead th{background:#21262d;padding:9px 12px;text-align:left;color:#8b949e;font-weight:600;border-bottom:1px solid #30363d;position:sticky;top:0;white-space:nowrap}
+tbody td{padding:9px 12px;border-bottom:1px solid #161b22;vertical-align:top}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover td{background:#1c2128}
+.tag{display:inline-block;padding:2px 7px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap}
+.tag-bug{background:#3d1f1f;color:#f85149}
+.tag-opinion{background:#1f2e43;color:#79c0ff}
+.tag-review{background:#1d2d1d;color:#7ee787}
+.tag-other{background:#2b2b1f;color:#e3b341}
+.sev{font-size:11px;font-weight:700}
+.sev-critical,.sev-최상{color:#f85149}
+.sev-상{color:#e3b341}
+.sev-중{color:#79c0ff}
+.sev-하{color:#7ee787}
+.game-chip{display:inline-block;padding:1px 7px;border-radius:6px;font-size:10px;font-weight:600;white-space:nowrap}
+.game-컴프야V{background:#0d2137;color:#58a6ff}
+.game-MLB라이벌{background:#2d1505;color:#ffa657}
+.game-MLB9이닝스{background:#0d2200;color:#7ee787}
+.game-컴프야26{background:#1f0d35;color:#d2a8ff}
+.game-기타{background:#21262d;color:#8b949e}
+
+/* ── Download bar ────────────────────────────────────────── */
+.dl-bar{display:flex;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap}
+.btn-dl{display:inline-flex;align-items:center;gap:7px;background:#238636;color:#fff;border:none;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:background .2s}
+.btn-dl:hover:not(:disabled){background:#2ea043}
+.btn-dl:disabled{background:#21262d;color:#484f58;cursor:not-allowed}
+.btn-reset{display:inline-flex;align-items:center;gap:7px;background:transparent;color:#8b949e;border:1px solid #30363d;padding:9px 18px;border-radius:8px;font-size:13px;cursor:pointer;transition:all .2s}
+.btn-reset:hover{border-color:#8b949e;color:#e6edf3}
+.dl-note{font-size:11px;color:#6e7681}
+
+/* ── Spinner ─────────────────────────────────────────────── */
+.spin{width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Tooltip / Notice ────────────────────────────────────── */
+.notice{background:#1f2d1f;border:1px solid #2d4a2d;border-radius:8px;padding:10px 14px;font-size:12px;color:#7ee787;display:flex;align-items:flex-start;gap:8px;margin-bottom:12px}
+.notice.warn{background:#2d2200;border-color:#4a3a00;color:#e3b341}
+
+/* ── Bookmarklet ─────────────────────────────────────────── */
+.bm-steps{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
+.bm-step{display:flex;align-items:flex-start;gap:12px;font-size:13px;color:#c9d1d9}
+.bm-num{width:22px;height:22px;border-radius:50%;background:#1f6feb;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.bm-link{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;background:#0d1117;border:2px dashed #58a6ff;border-radius:8px;color:#58a6ff;font-size:12px;font-weight:600;cursor:grab;text-decoration:none;user-select:none;transition:background .2s;white-space:nowrap}
+.bm-link:hover{background:#0d2137;text-decoration:none}
+.naver-status{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.naver-status-item{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;transition:border-color .3s}
+.naver-status-item .cafe-name{font-size:12px;color:#8b949e}
+.naver-status-item .cafe-count{font-size:18px;font-weight:700;color:#484f58}
+.naver-status-item.received{border-color:#238636}
+.naver-status-item.received .cafe-count{color:#56d364}
+.pulse{display:inline-block;width:8px;height:8px;border-radius:50%;background:#e3b341;animation:blink 1.2s ease-in-out infinite;margin-right:6px}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <h1>⚾ 야구 게임 커뮤니티 수집 툴</h1>
+    <span class="badge">v3.0 API</span>
+  </div>
+  <div class="header-right">DC인사이드 · 공식 커뮤니티 · 네이버카페</div>
+</header>
+
+<div class="container">
+
+  <!-- ── 기간 설정 ── -->
+  <div class="card">
+    <div class="card-title">📅 수집 기간</div>
+    <div class="grid-2">
+      <div class="field">
+        <label class="field-label">시작일</label>
+        <input type="date" id="dateFrom">
+      </div>
+      <div class="field">
+        <label class="field-label">종료일</label>
+        <input type="date" id="dateTo">
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 수집 사이트 ── -->
+  <div class="card">
+    <div class="card-title">🌐 수집 사이트</div>
+    <div class="site-grid" id="siteGrid">
+      <label class="site-item checked">
+        <input type="checkbox" value="dc_cpyv" checked>
+        <div class="site-label"><strong>DC인사이드 – 컴프야V26</strong><small>mgallery · cpyv22</small></div>
+      </label>
+      <label class="site-item checked">
+        <input type="checkbox" value="dc_rivals" checked>
+        <div class="site-label"><strong>DC인사이드 – MLB라이벌</strong><small>mgallery · 9inningsrivals</small></div>
+      </label>
+      <label class="site-item">
+        <input type="checkbox" value="dc_9innings">
+        <div class="site-label"><strong>DC인사이드 – MLB9이닝스</strong><small>mgallery · mlbgame</small></div>
+      </label>
+      <label class="site-item">
+        <input type="checkbox" value="dc_cpb26">
+        <div class="site-label"><strong>DC인사이드 – 컴프야26</strong><small>mgallery · com2usbaseball</small></div>
+      </label>
+      <label class="site-item checked">
+        <input type="checkbox" value="cpbv_official" checked>
+        <div class="site-label"><strong>컴프야V 공식 커뮤니티</strong><small>cpbv-community.com2us.com</small></div>
+      </label>
+      <label class="site-item checked">
+        <input type="checkbox" value="rivals_official" checked>
+        <div class="site-label"><strong>MLB라이벌 공식 커뮤니티</strong><small>community.withhive.com</small></div>
+      </label>
+      <label class="site-item">
+        <input type="checkbox" value="naver_cpyv26">
+        <div class="site-label"><strong>네이버카페 – MLB9이닝스</strong><small>네이버 검색 API · 자동 수집</small></div>
+      </label>
+      <label class="site-item">
+        <input type="checkbox" value="naver_9innings26">
+        <div class="site-label"><strong>네이버카페 – 컴프야26</strong><small>네이버 검색 API · 자동 수집</small></div>
+      </label>
+    </div>
+  </div>
+
+  <!-- ── 네이버 카페 북마클릿 ── -->
+  <!-- 네이버 API 상태 카드 -->
+  <div class="card" id="naverCard" style="display:none">
+    <div class="card-title">🔗 네이버 카페 API 수집</div>
+    <div class="notice">✅ 네이버 검색 API로 자동 수집합니다. 별도 작업 없이 수집 시작을 누르면 됩니다.</div>
+    <div class="naver-status">
+      <div class="naver-status-item" id="naverStatus_mlb9">
+        <div><div class="cafe-name"><span class="pulse"></span>MLB9이닝스 대기 중</div></div>
+        <div class="cafe-count" id="naverCount_mlb9">-</div>
+      </div>
+      <div class="naver-status-item" id="naverStatus_cpb26">
+        <div><div class="cafe-name"><span class="pulse"></span>컴프야26 대기 중</div></div>
+        <div class="cafe-count" id="naverCount_cpb26">-</div>
+      </div>
+    </div>
+  </div>
+  <!-- ── 카테고리 필터 ── -->
+  <div class="card">
+    <div class="card-title">🏷️ 카테고리 필터</div>
+    <div class="cat-row" id="catRow">
+      <button class="cat-btn on" data-cat="버그">🐛 버그 제보</button>
+      <button class="cat-btn on" data-cat="의견">💬 의견 · 건의</button>
+      <button class="cat-btn on" data-cat="평가">⭐ 평가 · 후기</button>
+      <button class="cat-btn on" data-cat="전체">📋 전체 (분류 무관)</button>
+    </div>
+  </div>
+
+  <!-- ── 시작 버튼 ── -->
+  <div class="card" style="padding-bottom:20px">
+    <button class="btn-start" id="btnStart">
+      <span>🚀 수집 시작</span>
+    </button>
+  </div>
+
+  <!-- ── 진행 상황 ── -->
+  <div class="card progress-section" id="progressSection">
+    <div class="card-title">⚙️ 진행 상황</div>
+    <div class="prog-header">
+      <span class="prog-status" id="progStatus">준비 중...</span>
+      <span class="prog-count" id="progCount"></span>
+    </div>
+    <div class="prog-track"><div class="prog-fill" id="progFill"></div></div>
+    <div class="log-box" id="logBox"></div>
+  </div>
+
+  <!-- ── 결과 ── -->
+  <div class="card results-section" id="resultsSection">
+    <div class="card-title">📊 수집 결과</div>
+    <div class="stats-row" id="statsRow"></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>#</th><th>게임</th><th>제목</th><th>카테고리</th><th>심각도</th><th>출처</th><th>날짜</th>
+        </tr></thead>
+        <tbody id="resultBody"></tbody>
+      </table>
+    </div>
+    <div class="dl-bar">
+      <button class="btn-dl" id="btnDl" disabled>📥 엑셀 다운로드</button>
+      <button class="btn-reset" id="btnReset">🔄 재수집</button>
+      <span class="dl-note" id="dlNote"></span>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════
+//  UTILITIES
+// ═══════════════════════════════════════════════════════════════
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const esc   = s  => String(s||'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#039;/g,"'").replace(/&nbsp;/g,' ');
+const stripTags = s => s.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+const today = () => new Date().toISOString().slice(0,10);
+
+// ── CORS proxy ──────────────────────────────────────────────
+async function proxyGet(url, timeout=15000) {
+  const proxies = [
+    `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+  ];
+  for (const px of proxies) {
+    try {
+      const ctrl = new AbortController();
+      const tid  = setTimeout(() => ctrl.abort(), timeout);
+      const r    = await fetch(px, { signal: ctrl.signal });
+      clearTimeout(tid);
+      if (!r.ok) continue;
+      const text = await r.text();
+      try { const j = JSON.parse(text); if (j.contents) return j.contents; } catch {}
+      if (text.length > 200) return text;
+    } catch { /* try next */ }
+  }
+  return '';
+}
+
+async function proxyPost(url, body, extraHeaders={}, timeout=15000) {
+  const px = `https://corsproxy.io/?url=${encodeURIComponent(url)}`;
+  try {
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), timeout);
+    const r = await fetch(px, {
+      method: 'POST',
+      headers: { 'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8',
+                 'X-Requested-With':'XMLHttpRequest', ...extraHeaders },
+      body, signal: ctrl.signal
+    });
+    clearTimeout(tid);
+    return await r.text();
+  } catch { return ''; }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  CLASSIFIERS
+// ═══════════════════════════════════════════════════════════════
+
+// ── 1. 버그: 기술적 오작동 · 크래시 · 기능 불가 ─────────────
+const BUG_KW = [
+  // 버그/오류/에러 직접 표현
+  '버그','오류','에러','error','bug','이슈','issue',
+  // 크래시·강제종료
+  '크래시','crash','강종','강제종료','팅김','튕김','튕겨','팅겨',
+  // 멈춤·프리징
+  '프리징','freezing','멈춤','멈춰','먹통','멈첬','응답없',
+  // 무한로딩·로딩 불가
+  '무한로딩','로딩 안','로딩안','로딩중','무한 로딩',
+  // 안됨·불가 계열
+  '안됨','안돼','안되는','안되네','않아요','않습니다','안 돼','안 됩니다',
+  '작동 안','작동안','클릭 안','눌러도 안','안 눌',
+  // 접속·로그인 불가
+  '접속 불가','접속이 안','접속안','로그인 불가','로그인 안','연결 안','연결안',
+  // 화면·UI 오류
+  '화면이 안','화면 깨','깨짐','안 보임','보이지 않','표시 안','표시가 안',
+  // 데이터·구매 오류
+  '데이터 사라','초기화됨','초기화 되','결제 오류','결제 안','구매 안','구매오류',
+];
+
+// ── 2. 의견/건의: 개선 요청 · 기능 제안 · 바람 ──────────────
+const OPINION_KW = [
+  // 직접 요청 명사
+  '건의','요청','제안','피드백','suggestion',
+  // ~해줬으면 / ~하면 좋겠다 패턴
+  '해줬으면','줬으면','하면 좋겠','했으면 좋겠','있으면 좋겠',
+  '됐으면','됐으면 좋겠','좋겠습니다','좋겠어요','좋겠네요',
+  // 추가·개선 요청
+  '추가해주','추가됐으면','추가 부탁','개선해주','개선 요청','개선됐으면',
+  '넣어주세요','넣어줬으면','만들어주','해주세요','해주셨으면','해주면',
+  // ~없나요 / ~어떤가요 / ~언제
+  '없나요','왜없나','왜 없나','없을까요','언제 추가','언제쯤','도입해주',
+  // 바랍니다·부탁
+  '바랍니다','바래요','바라겠습니다','부탁드립니다','부탁합니다','부탁이에요',
+  // 의견 서술
+  '생각인데','의견인데','의견입니다','어떻게 생각','제 생각엔',
+];
+
+// ── 3. 평가/후기: 개인 소감 · 만족/불만족 · 업데이트 반응 ───
+const REVIEW_KW = [
+  // 후기·리뷰·평가 명사
+  '후기','리뷰','평가','소감','느낌','감상','총평','종합 평가',
+  // 패치·업데이트 이후 반응 (요청이 아닌 감상)
+  '패치 후','패치하고','패치노트','업데이트 후','업데이트하고','업뎃 후','업뎃하고',
+  '업데이트 이후','업뎃 이후','업데이트 전후','패치 이후',
+  // 재밌다·별로다 계열
+  '재밌다','재밌어','재밌네','재미있다','재미있어','재미없','재미가 없','재미가없',
+  '별로다','별로네','별로임','별로인','실망이','실망스','만족스','만족해',
+  '좋아졌','나빠졌','망했','망해가','흥미롭','흥미없','흥미가 없',
+  '괜찮아졌','나쁘지 않','나쁘지않','해볼만','할만하',
+  // 점수·추천
+  '별점','점수','평점','추천','비추',
+  // 해보니·해봤는데
+  '해보니','해봤는데','해봤더니','해보면','플레이해보',
+  // 전반적으로
+  '전반적으로','전체적으로','전체 적으로',
+];
+
+const GAME_MAP  = {
+  '컴프야V':    ['컴프야v','cpyv','v26','cpbv','컴프야26','컴투스프로야구v'],
+  'MLB라이벌':  ['라이벌','rivals','irivals','9이닝스라이벌'],
+  'MLB9이닝스': ['9이닝스','mlb9i','9innings','mlbgame'],
+  '컴프야26':   ['컴프야26','cpb26','컴2026'],
+};
+
+const SEV_CRITICAL = ['결제','과금','충전','접속 불가','로그인 불가','크래시','crash','초기화','데이터 유실','데이터 사라','critical','치명'];
+const SEV_HIGH     = ['오류','error','버그','bug','강종','강제종료','먹통','팅김','튕김','프리징','안됨','불가'];
+
+function classifyCategory(title, body, activeFilters) {
+  const t = (title + ' ' + body).toLowerCase();
+
+  // 버그 우선 판별 (기술 오작동이 가장 명확)
+  let cat = '기타';
+  if (BUG_KW.some(k => t.includes(k))) {
+    cat = '버그';
+  } else if (OPINION_KW.some(k => t.includes(k))) {
+    cat = '의견';
+  } else if (REVIEW_KW.some(k => t.includes(k))) {
+    cat = '평가';
+  }
+
+  if (activeFilters.has('전체')) return cat;
+  if (activeFilters.has(cat))    return cat;
+  return null;
+}
+
+function classifyGame(title, body, hint='') {
+  const t = (title+' '+body+' '+hint).toLowerCase();
+  for (const [game, keys] of Object.entries(GAME_MAP)) {
+    if (keys.some(k => t.includes(k))) return game;
+  }
+  return '기타';
+}
+
+function classifySeverity(title, body) {
+  const t = (title+' '+body).toLowerCase();
+  if (SEV_CRITICAL.some(k => t.includes(k))) return '최상';
+  if (SEV_HIGH.some(k => t.includes(k)))     return '상';
+  return '중';
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DATE HELPERS
+// ═══════════════════════════════════════════════════════════════
+function parseDcDate(s) {
+  s = s.trim();
+  if (/^\d{1,2}:\d{2}$/.test(s)) return today();
+  let m = s.match(/^(\d{2})[./-](\d{2})[./-](\d{2})/);
+  if (m) return `20${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(20\d{2})[./-](\d{2})[./-](\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  return '';
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  FM코리아 SCRAPER
+// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+//  DC인사이드 SCRAPER
+// ═══════════════════════════════════════════════════════════════
+const DC_BOARDS = {
+  dc_cpyv:    { game:'컴프야V',    url:'https://gall.dcinside.com/mgallery/board/lists?id=cpyv22' },
+  dc_rivals:  { game:'MLB라이벌',  url:'https://gall.dcinside.com/mgallery/board/lists?id=9inningsrivals' },
+  dc_9innings:{ game:'MLB9이닝스', url:'https://gall.dcinside.com/mgallery/board/lists/?id=mlbgame' },
+  dc_cpb26:   { game:'컴프야26',   url:'https://gall.dcinside.com/mgallery/board/lists/?id=com2usbaseball' },
+};
+
+async function scrapeDcinside(siteKey, dateFrom, dateTo, log) {
+  const { game, url: baseUrl } = DC_BOARDS[siteKey];
+  const posts = [];
+
+  for (let page=1; page<=7; page++) {
+    const url = page===1 ? baseUrl : `${baseUrl}&page=${page}`;
+    log(`DC인사이드 ${game} 페이지 ${page}`, 'info');
+    const html = await proxyGet(url);
+    if (!html || html.length < 500) { log(`  → 응답 없음/차단, 중단`, 'warn'); break; }
+
+    const rows = [...html.matchAll(/<tr[^>]*class="[^"]*ub-content[^"]*"[^>]*>([\s\S]*?)<\/tr>/g)].map(m=>m[1]);
+    let oldestDate = '9999', pageCount = 0;
+
+    for (const row of rows) {
+      // URL — view-msg attribute or /board/view/ path
+      const urlM = row.match(/href="(\/(?:mgallery|board)\/board\/view\/[^"]+)"[^>]*view-msg/) ||
+                   row.match(/href="(\/(?:mgallery|board)\/board\/view\/[^"]+)"/);
+      if (!urlM) continue;
+      const postUrl = 'https://gall.dcinside.com' + urlM[1];
+
+      // Title — get anchor text near the URL
+      const titleM = row.match(new RegExp(urlM[1].replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '"[^>]*view-msg[^>]*>([\\s\\S]*?)<\\/a>')) ||
+                     row.match(/gall_tit[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/);
+      const title = titleM ? esc(stripTags(titleM[1])).replace(/\[.*?\]/g,'').trim() : '';
+      if (!title) continue;
+
+      // Date (cell text, not title attr)
+      const dateM = row.match(/<td[^>]*class="[^"]*gall_date[^"]*"[^>]*>([^<\n]+)</);
+      const dateStr = dateM ? parseDcDate(dateM[1]) : '';
+      if (!dateStr) continue;
+      if (dateStr < oldestDate) oldestDate = dateStr;
+      if (dateStr < dateFrom || dateStr > dateTo) continue;
+
+      const viewM = row.match(/<td[^>]*class="[^"]*gall_count[^"]*"[^>]*>(\d+)</);
+      posts.push({ title, url: postUrl, date: dateStr, views: viewM?viewM[1]:'0',
+                   source: `DC인사이드(${game})`, game, body:'', images:[] });
+      pageCount++;
+    }
+    log(`  → ${pageCount}건 수집, 최소날짜=${oldestDate}`);
+    if (oldestDate !== '9999' && oldestDate < dateFrom) break;
+    await sleep(1500);
+  }
+  return posts;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  컴프야V 공식 커뮤니티 SCRAPER
+// ═══════════════════════════════════════════════════════════════
+async function scrapeCpbvOfficial(dateFrom, dateTo, log) {
+  const BASE = 'https://cpbv-community.com2us.com';
+  const boards = [[28,'버그제보'],[29,'건의사항']];
+  const posts = [];
+
+  for (const [boardIdx, boardName] of boards) {
+    log(`컴프야V 공식 [${boardName}]`, 'info');
+    for (let page=1; page<=5; page++) {
+      const body = new URLSearchParams({ page, board_idx:boardIdx, board_type:1, board_comment:1,
+        boardtype1_preview_image:1, is_mobile:0, select_type:0, view_type:'list' }).toString();
+      const html = await proxyPost(`${BASE}/board/list/getBoardList`, body,
+                                    { Referer:`${BASE}/board/${boardIdx}` });
+      if (!html) break;
+
+      const positions = [...html.matchAll(/<li[^>]*onclick="detail\(/g)].map(m=>m.index);
+      let oldestDate = '9999', pageCount = 0;
+
+      for (let i=0; i<positions.length; i++) {
+        const block = html.slice(positions[i], positions[i+1]||html.length);
+        const idUrlM = block.match(/detail\('(\d+)',\s*'([^']+)'/);
+        if (!idUrlM) continue;
+        const [, postId, postUrl] = idUrlM;
+
+        const titleM = block.match(/<strong class="tit">([\s\S]*?)<\/strong>/);
+        const title = titleM ? esc(stripTags(titleM[1])) : '';
+        if (!title) continue;
+
+        const dateM = block.match(/<em class="t_date"[^>]*>([\s\S]*?)<\/em>/);
+        const dateStr = dateM ? dateM[1].trim().slice(0,10) : '';
+        if (!dateStr) continue;
+        if (dateStr < oldestDate) oldestDate = dateStr;
+        if (dateStr < dateFrom || dateStr > dateTo) continue;
+
+        // Get body/images from detail page
+        let bodyText = '', images = [];
+        try {
+          const detail = await proxyGet(postUrl);
+          if (detail) {
+            const contentM = detail.match(/class="post_cont">([\s\S]*?)<!--\s*\/\/post_cont/);
+            if (contentM) {
+              images = [...contentM[1].matchAll(/<img[^>]*src=["']([^"']+)["']/g)].map(m=>m[1])
+                        .filter(u=>u.includes('cpbv-community.com2us.com/image')).slice(0,2);
+              bodyText = esc(stripTags(contentM[1])).slice(0,500);
+            }
+          }
+        } catch {}
+
+        posts.push({ title, url:postUrl, date:dateStr, views:'0',
+                     source:'컴프야V 공식커뮤', game:'컴프야V', board:boardName,
+                     body:bodyText, images });
+        pageCount++;
+        await sleep(300);
+      }
+      log(`  페이지 ${page} → ${pageCount}건, 최소날짜=${oldestDate}`);
+      if (oldestDate < dateFrom || positions.length < 10) break;
+      await sleep(500);
+    }
+  }
+  return posts;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  MLB라이벌 공식 커뮤니티 SCRAPER
+// ═══════════════════════════════════════════════════════════════
+async function scrapeRivalsOfficial(dateFrom, dateTo, log) {
+  const BASE = 'https://community.withhive.com';
+  const SLUG = 'MLB9IRIVALS';
+  const boards = [[21,'버그제보'],[17,'자유게시판']];
+  const posts  = [];
+
+  for (const [boardIdx, boardName] of boards) {
+    log(`MLB라이벌 공식 [${boardName}]`, 'info');
+    const apiUrl = `${BASE}/${SLUG}/board/list/getBoardList`;
+
+    for (let page=1; page<=5; page++) {
+      const body = new URLSearchParams({ page, board_idx:boardIdx, board_type:1, board_comment:1,
+        boardtype1_preview_image:1, is_mobile:0, select_type:0, view_type:'list' }).toString();
+      const raw = await proxyPost(apiUrl, body, { Referer:`${BASE}/${SLUG}/board/${boardIdx}` });
+      if (!raw) break;
+
+      let items = [];
+      try {
+        const j = JSON.parse(raw);
+        const cl = j.contents_list;
+        items = (typeof cl === 'object' && !Array.isArray(cl)) ? (cl.list||[]) : [];
+      } catch { break; }
+      if (!items.length) break;
+
+      let oldestDate = '9999', pageCount = 0;
+      for (const item of items) {
+        if (typeof item !== 'object') continue;
+        const dateStr = (item.regdate||'').slice(0,10);
+        const postId  = item.idx || '';
+        const title   = esc(item.title||'');
+        const bidx    = item.board_idx || boardIdx;
+        const postUrl = `${BASE}/${SLUG}/board/${bidx}/${postId}`;
+        const thumb   = decodeURIComponent(item.thumb||'');
+        const bodyHtml= item.body_noscript||'';
+        const bodyText= esc(stripTags(bodyHtml)).slice(0,500);
+        const imgs    = [...bodyHtml.matchAll(/<img[^>]*src=["']([^"']+)["']/g)].map(m=>m[1])
+                        .filter(u=>u.includes('withhive.com')).slice(0,2);
+        if (thumb.includes('withhive.com')) imgs.unshift(thumb);
+
+        if (!dateStr) continue;
+        if (dateStr < oldestDate) oldestDate = dateStr;
+        if (dateStr < dateFrom || dateStr > dateTo) continue;
+        posts.push({ title, url:postUrl, date:dateStr, views:String(item.view_count||0),
+                     source:'MLB라이벌 공식커뮤', game:'MLB라이벌', board:boardName,
+                     body:bodyText, images:imgs.slice(0,2) });
+        pageCount++;
+      }
+      log(`  페이지 ${page} → ${pageCount}건, 최소날짜=${oldestDate}`);
+      if (oldestDate < dateFrom) break;
+      await sleep(500);
+    }
+  }
+  return posts;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  네이버 카페 — API 방식 (Vercel 서버리스)
+// ═══════════════════════════════════════════════════════════════
+async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, log, statusKey) {
+  log(`네이버카페 ${cafeName} API 수집 시작`, 'info');
+  const posts = [];
+  const keywords = ['버그','오류','에러','크래시','강종','튕김','안됨','건의','후기','패치'];
+  const seen = new Set();
+
+  for (const kw of keywords) {
+    try {
+      const params = new URLSearchParams({ keyword: kw, cafeId, display: 100 });
+      const res = await fetch('/api/naver?' + params);
+      if (!res.ok) { log(`  → API 오류 (${res.status})`, 'warn'); continue; }
+      const data = await res.json();
+      for (const item of (data.items || [])) {
+        if (seen.has(item.link)) continue;
+        seen.add(item.link);
+        // 네이버 카페 검색 API는 postdate를 제공하지 않으므로 날짜 필터 스킵
+        const pd = String(item.postdate || '');
+        const dateStr = pd.length === 8 ? `${pd.slice(0,4)}-${pd.slice(4,6)}-${pd.slice(6,8)}` : today();
+        const clean = s => s.replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
+        posts.push({ title: clean(item.title||''), url: item.link||'', date: dateStr, views:'0',
+          source: `네이버카페(${cafeName})`, game: gameName, body: clean(item.description||''), images:[] });
+      }
+    } catch(e) { log(`  → 키워드 "${kw}" 오류: ${e.message}`, 'warn'); }
+    await sleep(150);
+  }
+
+  const statusEl = document.getElementById('naverStatus_' + statusKey);
+  const countEl  = document.getElementById('naverCount_' + statusKey);
+  if (statusEl && countEl) {
+    statusEl.classList.add('received');
+    statusEl.querySelector('.cafe-name').innerHTML = `✅ ${cafeName}`;
+    countEl.textContent = posts.length;
+  }
+  log(`네이버카페 ${cafeName} 완료: ${posts.length}건`);
+  return posts;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  EXCEL BUILDER  (SheetJS)
+// ═══════════════════════════════════════════════════════════════
+function buildExcel(allResults) {
+  const wb = XLSX.utils.book_new();
+  const games = ['컴프야V','MLB라이벌','MLB9이닝스','컴프야26','기타'];
+  const byGame = Object.fromEntries(games.map(g=>[g,[]]));
+  for (const r of allResults) {
+    const g = r.game_classified||r.game||'기타';
+    (byGame[g]||byGame['기타']).push(r);
+  }
+
+  // ── 전체 요약 시트 ──
+  const sumData = [
+    ['야구 게임 커뮤니티 수집 리포트'],
+    [`수집 일시: ${new Date().toLocaleString('ko-KR')}`],
+    [''],
+    ['게임','수집건수','버그','의견','평가','기타','수집 사이트'],
+  ];
+  for (const g of games) {
+    const items = byGame[g];
+    if (!items.length) continue;
+    const cnt = cat => items.filter(r=>r.category===cat).length;
+    const srcs = [...new Set(items.map(r=>r.source||''))].join(', ');
+    sumData.push([g, items.length, cnt('버그'), cnt('의견'), cnt('평가'),
+                  items.length - cnt('버그')-cnt('의견')-cnt('평가'), srcs]);
+  }
+  const wsSum = XLSX.utils.aoa_to_sheet(sumData);
+  wsSum['!cols'] = [{wch:16},{wch:10},{wch:8},{wch:8},{wch:8},{wch:8},{wch:50}];
+  XLSX.utils.book_append_sheet(wb, wsSum, '전체요약');
+
+  // ── 게임별 시트 ──
+  const COLS = ['No','이슈 제목','이슈 내용','발생 단말','발생 빈도','심각도','카테고리','출처 사이트','날짜','원문 링크'];
+  const WIDS = [5, 30, 52, 18, 18, 8, 8, 22, 12, 40];
+  for (const g of games) {
+    const items = byGame[g];
+    if (!items.length) continue;
+    const rows = [COLS, ...items.map((r,i) => [
+      i+1,
+      r.title||'',
+      r.body||'',
+      r.device||'Android/iOS (미확인)',
+      r.frequency||'미상',
+      r.severity||'중',
+      r.category||'',
+      r.source||'',
+      r.date||'',
+      r.url||'',
+    ])];
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = WIDS.map(w=>({wch:w}));
+    XLSX.utils.book_append_sheet(wb, ws, g);
+  }
+
+  return wb;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  UI CONTROLLER
+// ═══════════════════════════════════════════════════════════════
+let collectedResults = [];
+let isRunning = false;
+
+// Init dates
+(function initDates() {
+  const d = new Date();
+  const fmt = d => d.toISOString().slice(0,10);
+  const from = new Date(d); from.setDate(d.getDate()-1);
+  document.getElementById('dateFrom').value = fmt(from);
+  document.getElementById('dateTo').value   = fmt(d);
+})();
+
+// Category toggle
+document.querySelectorAll('.cat-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    btn.classList.toggle('on');
+  });
+});
+
+// Site item checked state + show/hide Naver cookie panel
+document.querySelectorAll('.site-item input').forEach(cb => {
+  cb.addEventListener('change', () => {
+    cb.closest('.site-item').classList.toggle('checked', cb.checked);
+    // Show Naver cookie card if any naver site is checked
+    const naverSites = ['naver_cpyv26', 'naver_9innings26'];
+    const anyNaver = [...document.querySelectorAll('.site-item input:checked')]
+                       .some(c => naverSites.includes(c.value));
+    document.getElementById('naverCard').style.display = anyNaver ? 'block' : 'none';
+  });
+});
+
+// Log helper
+function addLog(msg, type='') {
+  const box = document.getElementById('logBox');
+  const ts  = new Date().toLocaleTimeString('ko-KR',{hour12:false});
+  const el  = document.createElement('div');
+  el.className = 'log-line';
+  el.innerHTML = `<span class="log-time">${ts}</span><span class="log-msg${type?' '+type:''}">${escHtml(msg)}</span>`;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function setProgress(pct, status) {
+  document.getElementById('progFill').style.width = Math.min(100,pct)+'%';
+  document.getElementById('progStatus').textContent = status;
+}
+
+// ── Start ──────────────────────────────────────────────────────
+document.getElementById('btnStart').addEventListener('click', async () => {
+  if (isRunning) return;
+  const sites = [...document.querySelectorAll('.site-item input:checked')].map(e=>e.value);
+  const cats  = new Set([...document.querySelectorAll('.cat-btn.on')].map(e=>e.dataset.cat));
+  if (!sites.length) { alert('수집 사이트를 선택하세요.'); return; }
+  if (!cats.size)    { alert('카테고리를 선택하세요.'); return; }
+
+  const dateFrom = document.getElementById('dateFrom').value;
+  const dateTo   = document.getElementById('dateTo').value;
+  if (!dateFrom || !dateTo) { alert('기간을 입력하세요.'); return; }
+
+  isRunning = true;
+  collectedResults = [];
+
+  const btnStart = document.getElementById('btnStart');
+  btnStart.disabled = true;
+  btnStart.innerHTML = '<span class="spin"></span><span>수집 중...</span>';
+
+  document.getElementById('progressSection').style.display = 'block';
+  document.getElementById('resultsSection').style.display  = 'none';
+  document.getElementById('logBox').innerHTML = '';
+  setProgress(0, '수집 준비 중...');
+
+  const log = (msg, type='') => addLog(msg, type);
+  let allPosts = [];
+  const totalSites = sites.length;
+  let doneSites = 0;
+
+  try {
+    for (const key of ['dc_cpyv','dc_rivals','dc_9innings','dc_cpb26']) {
+      if (!sites.includes(key)) continue;
+      const { game } = DC_BOARDS[key];
+      log(`=== DC인사이드 ${game} 수집 시작 ===`, 'info');
+      const p = await scrapeDcinside(key, dateFrom, dateTo, log);
+      allPosts.push(...p);
+      log(`DC ${game} 완료: ${p.length}건`);
+      doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
+    }
+
+    if (sites.includes('cpbv_official')) {
+      log('=== 컴프야V 공식 커뮤니티 수집 시작 ===', 'info');
+      const p = await scrapeCpbvOfficial(dateFrom, dateTo, log);
+      allPosts.push(...p);
+      log(`컴프야V 공식 완료: ${p.length}건`);
+      doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
+    }
+
+    if (sites.includes('rivals_official')) {
+      log('=== MLB라이벌 공식 커뮤니티 수집 시작 ===', 'info');
+      const p = await scrapeRivalsOfficial(dateFrom, dateTo, log);
+      allPosts.push(...p);
+      log(`MLB라이벌 공식 완료: ${p.length}건`);
+      doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
+    }
+
+    if (sites.includes('naver_cpyv26')) {
+      log('=== 네이버카페 MLB9이닝스 API 수집 시작 ===', 'info');
+      const p = await scrapeNaverCafeAPI('MLB9이닝스', 'com2usbaseball2015', 'MLB9이닝스', dateFrom, dateTo, log, 'mlb9');
+      allPosts.push(...p);
+      log(`네이버카페 MLB9이닝스 완료: ${p.length}건`);
+      doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
+    }
+
+    if (sites.includes('naver_9innings26')) {
+      log('=== 네이버카페 컴프야26 API 수집 시작 ===', 'info');
+      const p = await scrapeNaverCafeAPI('컴프야26', 'com2usbaseball2015', '컴프야26', dateFrom, dateTo, log, 'cpb26');
+      allPosts.push(...p);
+      log(`네이버카페 컴프야26 완료: ${p.length}건`);
+      doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
+    }
+    // ── Classify ────────────────────────────────────────────
+    log(`=== 분류 중 (총 ${allPosts.length}건) ===`, 'info');
+    setProgress(90, '분류 중...');
+    const filtered = [];
+    for (const p of allPosts) {
+      const cat = classifyCategory(p.title, p.body, cats);
+      if (cat === null) continue;
+      p.category        = cat;
+      p.game_classified = p.game || classifyGame(p.title, p.body, p.hint||p.source||'');
+      p.severity        = classifySeverity(p.title, p.body);
+      p.device          = 'Android/iOS (미확인)';
+      p.frequency       = '미상';
+      filtered.push(p);
+    }
+    log(`분류 완료: ${filtered.length}건`);
+    setProgress(100, `✅ 완료 — ${filtered.length}건 수집`);
+
+    collectedResults = filtered;
+    showResults(filtered);
+
+  } catch(e) {
+    log(`❌ 오류: ${e.message||e}`, 'err');
+    setProgress(100, '❌ 오류 발생');
+    console.error(e);
+  } finally {
+    isRunning = false;
+    btnStart.disabled = false;
+    btnStart.innerHTML = '<span>🚀 재수집</span>';
+  }
+});
+
+// ── Show results ───────────────────────────────────────────────
+function showResults(results) {
+  document.getElementById('resultsSection').style.display = 'block';
+
+  // Stats
+  const byGame = {};
+  const byCat  = { 버그:0, 의견:0, 평가:0, 기타:0 };
+  for (const r of results) {
+    const g = r.game_classified||'기타';
+    byGame[g] = (byGame[g]||0)+1;
+    if (r.category in byCat) byCat[r.category]++;
+    else byCat['기타']++;
+  }
+
+  let statsHtml = `<div class="stat-box"><div class="num">${results.length}</div><div class="lbl">전체</div></div>`;
+  for (const [g,n] of Object.entries(byGame)) {
+    statsHtml += `<div class="stat-box"><div class="num">${n}</div><div class="lbl">${g}</div></div>`;
+  }
+  document.getElementById('statsRow').innerHTML = statsHtml;
+  document.getElementById('progCount').textContent = `${results.length}건`;
+
+  // Table
+  const tbody = document.getElementById('resultBody');
+  const MAX_ROWS = 300;
+  tbody.innerHTML = results.slice(0,MAX_ROWS).map((r,i) => {
+    const catKey = r.category==='버그'?'bug':r.category==='의견'?'opinion':r.category==='평가'?'review':'other';
+    const game   = r.game_classified||'기타';
+    const sev    = r.severity||'중';
+    return `<tr>
+      <td style="text-align:center;color:#484f58;width:36px">${i+1}</td>
+      <td><span class="game-chip game-${game}">${game}</span></td>
+      <td><a href="${escHtml(r.url||'')}" target="_blank" rel="noopener">${escHtml(r.title||'')}</a></td>
+      <td><span class="tag tag-${catKey}">${escHtml(r.category||'')}</span></td>
+      <td><span class="sev sev-${sev}">${sev}</span></td>
+      <td style="font-size:11px;color:#6e7681;white-space:nowrap">${escHtml(r.source||'')}</td>
+      <td style="font-size:11px;color:#6e7681;white-space:nowrap">${escHtml(r.date||'')}</td>
+    </tr>`;
+  }).join('');
+
+  if (results.length > MAX_ROWS) {
+    document.getElementById('dlNote').textContent = `미리보기 ${MAX_ROWS}건 — 전체 ${results.length}건은 엑셀 파일에 포함`;
+  }
+
+  const btnDl = document.getElementById('btnDl');
+  btnDl.disabled = !results.length;
+}
+
+// ── Download Excel ─────────────────────────────────────────────
+document.getElementById('btnDl').addEventListener('click', () => {
+  if (!collectedResults.length) return;
+  const wb  = buildExcel(collectedResults);
+  const now = new Date().toISOString().slice(0,16).replace('T','_').replace(':','');
+  XLSX.writeFile(wb, `baseball_bugs_${now}.xlsx`);
+});
+
+// ── Reset ──────────────────────────────────────────────────────
+document.getElementById('btnReset').addEventListener('click', () => {
+  collectedResults = [];
+  document.getElementById('progressSection').style.display = 'none';
+  document.getElementById('resultsSection').style.display  = 'none';
+  document.getElementById('btnStart').innerHTML = '<span>🚀 수집 시작</span>';
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('logBox').innerHTML = '';
+  setProgress(0, '');
+  window.scrollTo({ top: 0, behavior:'smooth' });
+});
+</script>
+</body>
+</html>
