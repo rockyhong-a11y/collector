@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "커뮤니티 이슈 취합 (Vercel Dev)",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vercel", "dev"],
+      "cwd": ".",
+      "port": 3000
+    }
+  ]
+}
