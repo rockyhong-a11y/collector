@@ -638,14 +638,15 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
       for (const item of (data.items || [])) {
         if (seen.has(item.link)) continue;
         seen.add(item.link);
-        const pd = String(item.postdate || '');
-        if (pd.length !== 8) continue; // postdate 없는 항목 제외
-        const dateStr = `${pd.slice(0,4)}-${pd.slice(4,6)}-${pd.slice(6,8)}`;
-        if (dateStr < dateFrom || dateStr > dateTo) continue; // 날짜 범위 필터
+        const pd = String(item.postdate || '').replace(/\D/g, '');
+        const hasDate = pd.length === 8 && pd !== '00000000';
+        const dateStr = hasDate ? `${pd.slice(0,4)}-${pd.slice(4,6)}-${pd.slice(6,8)}` : null;
+        // 날짜가 확인된 항목만 범위 필터 적용, 날짜 불명 항목은 통과
+        if (dateStr && (dateStr < dateFrom || dateStr > dateTo)) continue;
         posts.push({
           title:  cleanHtml(item.title||''),
           url:    item.link||'',
-          date:   dateStr,
+          date:   dateStr || today(),
           views:  '0',
           source: `네이버카페(${cafeName})`,
           game:   gameName,
