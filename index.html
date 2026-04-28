@@ -479,14 +479,13 @@ const SEV_HIGH     = ['오류','error','버그','bug','강종','강제종료','�
 function classifyCategory(title, body, activeFilters) {
   const t = (title + ' ' + body).toLowerCase();
   // 퍼지 매칭: 정확 일치 + 편집거리 1 이내 유사 단어 허용
-  // 매칭 안되면 null 반환 — 의견/평가로 떨어뜨려 노이즈 유발하지 않음
-  let cat = null;
+  // 검색어 없이 수집된 일반 글도 의견/평가로 자동 분류 (기본값)
+  let cat = '의견/평가';
   if (BUG_KW.some(k => fuzzyIncludes(t, k))) {
     cat = '버그/이슈';
   } else if (OPINION_KW.some(k => fuzzyIncludes(t, k))) {
     cat = '의견/평가';
   }
-  if (cat === null) return null;
   if (activeFilters.has(cat)) return cat;
   return null;
 }
@@ -678,46 +677,67 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log, userKeywords=[]) {
       if (!title) continue;
 
       let bodyText = '', images = [], comments = '';
+      let titleMatch = false, fetchFailed = false;
+
       if (wantDetail) {
-        // 본문
-        try {
-          const detail = await proxyGet(postUrl);
-          if (detail) {
-            const ctM = detail.match(/class="post_cont">([\s\S]*?)<!--\s*\/\/post_cont/);
-            if (ctM) {
-              images = [...ctM[1].matchAll(/<img[^>]*src=["']([^"']+)["']/g)].map(m=>m[1])
-                        .filter(u=>u.includes('cpbv-community.com2us.com/image')).slice(0,2);
-              bodyText = esc(stripTags(ctM[1])).slice(0,500);
-            }
-          }
-        } catch {}
-        // 댓글
-        try {
-          const cmtBody = new URLSearchParams({ page:1, board_idx:bidx, contents_idx:item.idx }).toString();
-          const cmtRaw = await proxyPost(`${BASE}/board/list/getCommentList`, cmtBody,
-                                          { Referer:postUrl });
-          if (cmtRaw) {
+        // 1단계: 제목 매칭 — 제목에 키워드 있으면 fetch 생략하고 즉시 통과
+        const titleLower = title.toLowerCase();
+        titleMatch = userKeywords.some(k => fuzzyIncludes(titleLower, k));
+
+        if (!titleMatch) {
+          // 2단계: 본문 fetch
+          try {
+            const detail = await proxyGet(postUrl);
+            if (detail && detail.length > 200) {
+              const ctM = detail.match(/class="post_cont">([\s\S]*?)<!--\s*\/\/post_cont/);
+              if (ctM) {
+                images = [...ctM[1].matchAll(/<img[^>]*src=["']([^"']+)["']/g)].map(m=>m[1])
+                          .filter(u=>u.includes('cpbv-community.com2us.com/image')).slice(0,2);
+                bodyText = esc(stripTags(ctM[1])).slice(0,500);
+              }
+            } else { fetchFailed = true; }
+          } catch { fetchFailed = true; }
+
+          // 3단계: 댓글 fetch (comment_count > 0 일 때만)
+          if (+item.comment_count > 0) {
             try {
-              const cj = JSON.parse(cmtRaw);
-              if (cj.list_html) comments = esc(stripTags(cj.list_html)).slice(0,1000);
+              const cmtBody = new URLSearchParams({ page:1, board_idx:bidx, contents_idx:item.idx }).toString();
+              const cmtRaw = await proxyPost(`${BASE}/board/list/getCommentList`, cmtBody,
+                                              { Referer:postUrl });
+              if (cmtRaw) {
+                try {
+                  const cj = JSON.parse(cmtRaw);
+                  if (cj.list_html) comments = esc(stripTags(cj.list_html)).slice(0,1500);
+                } catch {}
+              }
             } catch {}
           }
-        } catch {}
 
-        // 키워드 매칭 (제목+본문+댓글)
-        const t = (title + ' ' + bodyText + ' ' + comments).toLowerCase();
-        if (!userKeywords.some(k => fuzzyIncludes(t, k))) { kwSkip++; await sleep(150); continue; }
+          // 4단계: 본문+댓글 매칭
+          const contentText = (bodyText + ' ' + comments).toLowerCase();
+          const contentMatch = contentText.length > 0
+            && userKeywords.some(k => fuzzyIncludes(contentText, k));
+
+          // 매칭 실패 + fetch도 실패하지 않은 경우만 스킵
+          // (fetch 실패 시엔 keep — 잠재 매칭 가능성을 폐기하지 않음)
+          if (!contentMatch && !fetchFailed) {
+            kwSkip++;
+            await sleep(80);
+            continue;
+          }
+        }
       }
 
       posts.push({
         title, url:postUrl, date:dateStr,
         views: String(item.view_count || 0),
         source: '컴프야V 공식커뮤', game: '컴프야V', board: `board_${bidx}`,
-        body: bodyText + (comments ? `\n[댓글] ${comments.slice(0,300)}` : ''),
+        body: bodyText + (comments ? `\n[댓글] ${comments.slice(0,300)}` : '')
+              + (fetchFailed ? ' [본문/댓글 fetch 실패]' : ''),
         images,
       });
       pageCount++;
-      if (wantDetail) await sleep(150);
+      if (wantDetail && !titleMatch) await sleep(80);
     }
     log(`  페이지 ${page} → 수집 ${pageCount}건${kwSkip?` · 키워드 미스 ${kwSkip}`:''}, 최소날짜=${oldestDate}`);
     if (oldestDate !== '9999' && oldestDate < dateFrom) break;
@@ -778,34 +798,58 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log, userKeywords=[]) {
       if (thumb.includes('withhive.com')) imgs.unshift(thumb);
 
       let comments = '';
-      if (wantDetail) {
-        try {
-          const cmtBody = new URLSearchParams({
-            page:1, lang:'ko', contents_idx:postId, is_mobile:0
-          }).toString();
-          const cmtRaw = await proxyPost(cmtUrl, cmtBody, { Referer:postUrl });
-          if (cmtRaw) {
-            try {
-              const cj = JSON.parse(cmtRaw);
-              if (cj.list_html) comments = esc(stripTags(cj.list_html)).slice(0,1000);
-            } catch {}
-          }
-        } catch {}
+      let titleMatch = false, fetchFailed = false;
 
-        // 키워드 매칭 (제목+본문+댓글)
-        const t = (title + ' ' + bodyText + ' ' + comments).toLowerCase();
-        if (!userKeywords.some(k => fuzzyIncludes(t, k))) { kwSkip++; await sleep(120); continue; }
+      if (wantDetail) {
+        // 1단계: 제목 매칭 — 제목 매칭 시 fetch 생략
+        const titleLower = title.toLowerCase();
+        titleMatch = userKeywords.some(k => fuzzyIncludes(titleLower, k));
+
+        if (!titleMatch) {
+          // 2단계: 본문은 이미 body_noscript에 있음, 매칭 시도
+          let contentMatch = false;
+          if (bodyText) {
+            contentMatch = userKeywords.some(k => fuzzyIncludes(bodyText.toLowerCase(), k));
+          }
+
+          // 3단계: 본문 매칭 실패 시 댓글 fetch (comment_count > 0)
+          if (!contentMatch && +item.comment_count > 0) {
+            try {
+              const cmtBody = new URLSearchParams({
+                page:1, lang:'ko', contents_idx:postId, is_mobile:0
+              }).toString();
+              const cmtRaw = await proxyPost(cmtUrl, cmtBody, { Referer:postUrl });
+              if (cmtRaw) {
+                try {
+                  const cj = JSON.parse(cmtRaw);
+                  if (cj.list_html) comments = esc(stripTags(cj.list_html)).slice(0,1500);
+                } catch {}
+              } else { fetchFailed = true; }
+            } catch { fetchFailed = true; }
+            if (comments) {
+              contentMatch = userKeywords.some(k => fuzzyIncludes(comments.toLowerCase(), k));
+            }
+          }
+
+          // 매칭 실패 + fetch 실패도 아닌 경우만 스킵
+          if (!contentMatch && !fetchFailed) {
+            kwSkip++;
+            await sleep(80);
+            continue;
+          }
+        }
       }
 
       posts.push({
         title, url:postUrl, date:dateStr,
         views: String(item.view_count || 0),
         source: 'MLB라이벌 공식커뮤', game: 'MLB라이벌', board: `board_${bidx}`,
-        body: bodyText + (comments ? `\n[댓글] ${comments.slice(0,300)}` : ''),
+        body: bodyText + (comments ? `\n[댓글] ${comments.slice(0,300)}` : '')
+              + (fetchFailed ? ' [댓글 fetch 실패]' : ''),
         images: imgs.slice(0,2),
       });
       pageCount++;
-      if (wantDetail) await sleep(120);
+      if (wantDetail && !titleMatch && !comments) await sleep(80);
     }
     log(`  페이지 ${page} → 수집 ${pageCount}건${kwSkip?` · 키워드 미스 ${kwSkip}`:''}, 최소날짜=${oldestDate}`);
     if (oldestDate !== '9999' && oldestDate < dateFrom) break;
@@ -831,21 +875,8 @@ const NAVER_MAX_START  = 301; // 최대 300건 (start 1·101·201)
 async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, log, statusKey, customKeywords=[]) {
   log(`네이버카페 [${cafeName}] API 수집 시작 (cafeid:${cafeId})`, 'info');
 
-  // 사전 점검: /api/naver 엔드포인트 접근 가능 여부 확인
-  try {
-    const probe = await fetch('/api/naver?keyword=test&display=1');
-    if (!probe.ok && probe.status !== 400) throw new Error(`HTTP ${probe.status}`);
-  } catch(e) {
-    log(`네이버카페 [${cafeName}]: API 서버 접근 불가 — Vercel 배포 환경에서만 동작합니다 (${e.message})`, 'warn');
-    const statusEl = document.getElementById('naverStatus_' + statusKey);
-    const countEl  = document.getElementById('naverCount_' + statusKey);
-    if (statusEl && countEl) {
-      statusEl.classList.add('received');
-      statusEl.querySelector('.cafe-name').innerHTML = `⚠️ ${cafeName} (Vercel 전용)`;
-      countEl.textContent = 0;
-    }
-    return [];
-  }
+  // 사전 probe 제거 — cold start나 일시적 지연으로 통째로 abort되는 것 방지
+  // 실제 키워드 호출 단계에서 개별적으로 오류 처리
 
   const keywords  = customKeywords.length > 0 ? customKeywords : NAVER_DEFAULT_KW;
   const posts     = [];
@@ -858,12 +889,26 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
       try {
         const params = new URLSearchParams({ keyword: kw, cafeId, display: NAVER_PAGE_SIZE, start, dateFrom, dateTo });
         const res = await fetch('/api/naver?' + params);
-        if (!res.ok) { log(`  → API 오류 (${res.status})`, 'warn'); break; }
+        if (!res.ok) {
+          const errText = await res.text().catch(()=>'');
+          log(`  → API 오류 (HTTP ${res.status}) ${errText.slice(0,120)}`, 'err');
+          break;
+        }
         const data = await res.json();
+        // API 자체 오류 응답
+        if (data.errorMessage || data.error) {
+          log(`  → 네이버 API 오류: ${data.errorMessage || data.error}`, 'err');
+          break;
+        }
         const items = data.items || [];
         const rawCount = (typeof data._rawCount === 'number') ? data._rawCount : items.length;
+        const filteredOutByServer = rawCount - items.length;
 
-        // 원본 응답이 0이면 더 이상 페이지 없음
+        if (start === 1) {
+          log(`  키워드 "${kw}" — API 원본 ${rawCount}건, 서버필터 통과 ${items.length}건`);
+        }
+
+        // 원본 응답 자체가 0이면 — Naver에 해당 키워드 결과 없음. 다음 키워드.
         if (rawCount === 0) break;
 
         let hitOldDate = false;
@@ -873,12 +918,12 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
           if (seen.has(item.link)) continue;
           seen.add(item.link);
 
-          // [엄격] postdate 없으면 무조건 제외 — 몇 년 전 글 유입 차단
+          // [엄격] postdate 없으면 제외 — 몇 년 전 글 유입 차단
           const dateStr = DATE.parse(item.postdate);
           if (!dateStr) { skipNoDate++; continue; }
           if (!DATE.isReasonable(dateStr)) { skipUnreasonable++; continue; }
 
-          // 수집 기간 범위 확인 (서버 필터 이중 보장)
+          // 수집 기간 범위 확인
           if (dateStr < dateFrom) { hitOldDate = true; skipRange++; continue; }
           if (dateStr > dateTo)   { skipRange++; continue; }
 
@@ -894,10 +939,11 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
           });
         }
 
-        if (skipNoDate || skipUnreasonable || skipRange)
-          log(`  → [검증] 날짜불명 ${skipNoDate}건 · 비정상 ${skipUnreasonable}건 · 범위외 ${skipRange}건 제외`, 'warn');
+        if (skipNoDate || skipUnreasonable || skipRange || filteredOutByServer) {
+          log(`  → [검증] 서버제외 ${filteredOutByServer}건 · 날짜불명 ${skipNoDate}건 · 비정상 ${skipUnreasonable}건 · 범위외 ${skipRange}건`, 'warn');
+        }
 
-        // 종료 조건: dateFrom 이전 항목 발견 OR API 원본 응답이 페이지 크기 미만
+        // 종료 조건: dateFrom 이전 발견 OR API 원본이 페이지 크기 미만
         if (hitOldDate) break;
         if (rawCount < NAVER_PAGE_SIZE) break;
         start += NAVER_PAGE_SIZE;
