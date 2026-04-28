@@ -245,7 +245,7 @@ tbody tr:hover td{background:#1c2128}
   <div class="card">
     <div class="card-title">🔍 검색어 (선택)</div>
     <div class="field">
-      <label class="field-label">키워드 — 쉼표 또는 공백으로 구분 &nbsp;·&nbsp; 비워두면 카테고리 키워드로 전체 수집</label>
+      <label class="field-label">키워드 — 쉼표 또는 공백으로 구분 &nbsp;·&nbsp; 비워두면 기간 내 전체 수집 &nbsp;·&nbsp; 입력 시 DC·네이버는 검색 URL/API로 사전 필터</label>
       <input type="text" id="keywords" placeholder="예: 버그, 크래시, 결제 오류, 업데이트">
     </div>
   </div>
@@ -343,7 +343,24 @@ function fuzzyIncludes(text, keyword) {
 }
 
 // ── CORS proxy ──────────────────────────────────────────────
+// 1순위: Vercel 서버리스 프록시(/api/proxy) — 공개 프록시 장애 회피
+// 2순위: 공개 프록시(allorigins/codetabs/corsproxy) — 로컬·정적 호스팅 호환
 async function proxyGet(url, timeout=15000) {
+  // 1순위: 자체 서버 프록시
+  try {
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), timeout);
+    const r = await fetch(`/api/proxy?url=${encodeURIComponent(url)}`, { signal: ctrl.signal });
+    clearTimeout(tid);
+    if (r.ok) {
+      const text = await r.text();
+      if (text && text.length > 200) return text;
+    }
+  } catch(e) {
+    console.warn(`[proxyGet] /api/proxy 실패: ${e.message}, 공개 프록시로 폴백`);
+  }
+
+  // 2순위: 공개 CORS 프록시
   const proxies = [
     `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
     `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
@@ -364,6 +381,26 @@ async function proxyGet(url, timeout=15000) {
 }
 
 async function proxyPost(url, body, extraHeaders={}, timeout=15000) {
+  // 1순위: 자체 서버 프록시 (가장 안정적)
+  try {
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), timeout);
+    const refQ = extraHeaders.Referer ? `&referer=${encodeURIComponent(extraHeaders.Referer)}` : '';
+    const r = await fetch(`/api/proxy?url=${encodeURIComponent(url)}${refQ}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+      body, signal: ctrl.signal
+    });
+    clearTimeout(tid);
+    if (r.ok) {
+      const text = await r.text();
+      if (text && text.length > 50) return text;
+    }
+  } catch(e) {
+    console.warn(`[proxyPost] /api/proxy 실패: ${e.message}, 공개 프록시로 폴백`);
+  }
+
+  // 2순위: 공개 CORS 프록시
   const proxies = [
     enc => `https://corsproxy.io/?url=${enc}`,
     enc => `https://api.allorigins.win/raw?url=${enc}`,
@@ -441,15 +478,16 @@ const SEV_HIGH     = ['오류','error','버그','bug','강종','강제종료','�
 
 function classifyCategory(title, body, activeFilters) {
   const t = (title + ' ' + body).toLowerCase();
-  let cat = '의견/평가'; // 기본값
   // 퍼지 매칭: 정확 일치 + 편집거리 1 이내 유사 단어 허용
+  // 매칭 안되면 null 반환 — 의견/평가로 떨어뜨려 노이즈 유발하지 않음
+  let cat = null;
   if (BUG_KW.some(k => fuzzyIncludes(t, k))) {
     cat = '버그/이슈';
   } else if (OPINION_KW.some(k => fuzzyIncludes(t, k))) {
     cat = '의견/평가';
   }
+  if (cat === null) return null;
   if (activeFilters.has(cat)) return cat;
-  if (activeFilters.size === 2) return cat;
   return null;
 }
 
@@ -529,44 +567,68 @@ const DC_BOARDS = {
   dc_cpb26:   { game:'컴프야26',   url:'https://gall.dcinside.com/mgallery/board/lists/?id=com2usbaseball' },
 };
 
-async function scrapeDcinside(siteKey, dateFrom, dateTo, log) {
+async function scrapeDcinside(siteKey, dateFrom, dateTo, log, userKeywords=[]) {
   const { game, url: baseUrl } = DC_BOARDS[siteKey];
   const posts = [];
+  const seenUrls = new Set();
 
-  for (let page=1; page<=7; page++) {
-    const url = page===1 ? baseUrl : `${baseUrl}&page=${page}`;
-    log(`DC인사이드 ${game} 페이지 ${page}`, 'info');
-    const html = await proxyGet(url);
-    if (!html || html.length < 500) { log(`  → 응답 없음/차단, 중단`, 'warn'); break; }
+  // 사용자 키워드가 있으면 DC의 제목+본문 검색 URL을 키워드별로 사용 (사후 필터로 날리지 않음)
+  // 키워드 없으면 기간 기준 일반 목록 스크래핑
+  const queries = userKeywords.length > 0
+    ? userKeywords.map(kw => ({
+        kw,
+        url: `${baseUrl}&s_type=search_subject_memo&s_keyword=${encodeURIComponent(kw)}`
+      }))
+    : [{ kw: null, url: baseUrl }];
 
-    const rows = [...html.matchAll(/<tr[^>]*class="[^"]*ub-content[^"]*"[^>]*>([\s\S]*?)<\/tr>/g)].map(m=>m[1]);
-    let oldestDate = '9999', pageCount = 0;
+  for (const { kw, url: queryUrl } of queries) {
+    if (kw) log(`DC인사이드 ${game} 키워드 검색: "${kw}"`, 'info');
 
-    for (const row of rows) {
-      const urlM = row.match(/href="(\/(?:mgallery|board)\/board\/view\/[^"]+)"[^>]*view-msg/) ||
-                   row.match(/href="(\/(?:mgallery|board)\/board\/view\/[^"]+)"/);
-      if (!urlM) continue;
-      const postUrl = 'https://gall.dcinside.com' + urlM[1];
+    for (let page=1; page<=7; page++) {
+      const url = page===1 ? queryUrl : `${queryUrl}&page=${page}`;
+      log(`  DC ${game} 페이지 ${page}${kw?` ["${kw}"]`:''}`, 'info');
+      const html = await proxyGet(url);
+      if (!html || html.length < 500) { log(`    → 응답 없음/차단, 중단`, 'warn'); break; }
 
-      const titleM = row.match(new RegExp(urlM[1].replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '"[^>]*view-msg[^>]*>([\\s\\S]*?)<\\/a>')) ||
-                     row.match(/gall_tit[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/);
-      const title = titleM ? esc(stripTags(titleM[1])).replace(/\[.*?\]/g,'').trim() : '';
-      if (!title) continue;
+      const rows = [...html.matchAll(/<tr[^>]*class="[^"]*ub-content[^"]*"[^>]*>([\s\S]*?)<\/tr>/g)].map(m=>m[1]);
+      let oldestDate = '9999', pageCount = 0;
 
-      const dateM = row.match(/<td[^>]*class="[^"]*gall_date[^"]*"[^>]*>([^<\n]+)</);
-      const dateStr = dateM ? DATE.parse(dateM[1]) : null;
-      if (!dateStr || !DATE.isReasonable(dateStr)) continue;
-      if (dateStr < oldestDate) oldestDate = dateStr;
-      if (!DATE.inRange(dateStr, dateFrom, dateTo)) continue;
+      for (const row of rows) {
+        // 공지/설문/이벤트 행 스킵 (gall_num 셀이 숫자가 아니면 공지 등)
+        const numM = row.match(/<td[^>]*class="[^"]*gall_num[^"]*"[^>]*>([\s\S]*?)<\/td>/);
+        if (numM) {
+          const numText = stripTags(numM[1]);
+          if (!/^\d+$/.test(numText)) continue;
+        }
+        if (/icon_notice|class="notice"/.test(row)) continue;
 
-      const viewM = row.match(/<td[^>]*class="[^"]*gall_count[^"]*"[^>]*>(\d+)</);
-      posts.push({ title, url: postUrl, date: dateStr, views: viewM?viewM[1]:'0',
-                   source: `DC인사이드(${game})`, game, body:'', images:[] });
-      pageCount++;
+        const urlM = row.match(/href="(\/(?:mgallery|board)\/board\/view\/[^"]+)"[^>]*view-msg/) ||
+                     row.match(/href="(\/(?:mgallery|board)\/board\/view\/[^"]+)"/);
+        if (!urlM) continue;
+        const postUrl = 'https://gall.dcinside.com' + urlM[1];
+        if (seenUrls.has(postUrl)) continue; // 키워드별 중복 제거
+        seenUrls.add(postUrl);
+
+        const titleM = row.match(new RegExp(urlM[1].replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '"[^>]*view-msg[^>]*>([\\s\\S]*?)<\\/a>')) ||
+                       row.match(/gall_tit[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/);
+        const title = titleM ? esc(stripTags(titleM[1])).replace(/\[.*?\]/g,'').trim() : '';
+        if (!title) continue;
+
+        const dateM = row.match(/<td[^>]*class="[^"]*gall_date[^"]*"[^>]*>([^<\n]+)</);
+        const dateStr = dateM ? DATE.parse(dateM[1]) : null;
+        if (!dateStr || !DATE.isReasonable(dateStr)) continue;
+        if (dateStr < oldestDate) oldestDate = dateStr;
+        if (!DATE.inRange(dateStr, dateFrom, dateTo)) continue;
+
+        const viewM = row.match(/<td[^>]*class="[^"]*gall_count[^"]*"[^>]*>(\d+)</);
+        posts.push({ title, url: postUrl, date: dateStr, views: viewM?viewM[1]:'0',
+                     source: `DC인사이드(${game})`, game, body:'', images:[] });
+        pageCount++;
+      }
+      log(`    → ${pageCount}건 수집, 최소날짜=${oldestDate}`);
+      if (oldestDate !== '9999' && oldestDate < dateFrom) break;
+      await sleep(1500);
     }
-    log(`  → ${pageCount}건 수집, 최소날짜=${oldestDate}`);
-    if (oldestDate !== '9999' && oldestDate < dateFrom) break;
-    await sleep(1500);
   }
   return posts;
 }
@@ -939,12 +1001,12 @@ document.getElementById('btnStart').addEventListener('click', async () => {
   let doneSites = 0;
 
   try {
-    // DC인사이드
+    // DC인사이드 (키워드 있으면 s_keyword 검색 URL로 사전 필터)
     for (const key of ['dc_cpyv','dc_rivals','dc_9innings','dc_cpb26']) {
       if (!sites.includes(key)) continue;
       const { game } = DC_BOARDS[key];
       log(`=== DC인사이드 ${game} 수집 시작 ===`, 'info');
-      const p = await scrapeDcinside(key, dateFrom, dateTo, log);
+      const p = await scrapeDcinside(key, dateFrom, dateTo, log, userKeywords);
       allPosts.push(...p);
       log(`DC ${game} 완료: ${p.length}건`);
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
@@ -984,16 +1046,22 @@ document.getElementById('btnStart').addEventListener('click', async () => {
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
     }
 
-    // ── 사용자 검색어 필터 (DC/공식 게시물 대상) ──────────────
+    // ── 사용자 검색어 필터 (공식 커뮤니티 한정) ────────────────
+    // - 네이버카페: API 검색어로 사전 필터됨
+    // - DC인사이드: s_keyword 검색 URL로 사전 필터됨
+    // - 공식 커뮤니티: 본문이 채워져 있으므로 title+body로 필터
     if (userKeywords.length > 0) {
       const before = allPosts.length;
       allPosts = allPosts.filter(p => {
-        // 네이버카페는 이미 키워드로 검색했으므로 그대로 유지
-        if (p.source && p.source.startsWith('네이버카페')) return true;
+        const src = p.source || '';
+        if (src.startsWith('네이버카페')) return true;
+        if (src.startsWith('DC인사이드')) return true;
         const t = (p.title + ' ' + (p.body||'')).toLowerCase();
         return userKeywords.some(k => fuzzyIncludes(t, k));
       });
-      log(`검색어 필터 적용 [${userKeywords.join(', ')}]: ${before}건 → ${allPosts.length}건`);
+      if (before !== allPosts.length) {
+        log(`검색어 필터 (공식커뮤) [${userKeywords.join(', ')}]: ${before}건 → ${allPosts.length}건`);
+      }
     }
 
     // ── 카테고리 분류 ───────────────────────────────────────
