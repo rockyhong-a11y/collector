@@ -572,17 +572,21 @@ async function scrapeDcinside(siteKey, dateFrom, dateTo, log, userKeywords=[]) {
   const posts = [];
   const seenUrls = new Set();
 
-  // 사용자 키워드가 있으면 DC의 제목+본문 검색 URL을 키워드별로 사용 (사후 필터로 날리지 않음)
-  // 키워드 없으면 기간 기준 일반 목록 스크래핑
+  // 사용자 키워드 입력 시 — 키워드별로 [제목+본문] / [댓글] 두 검색 URL 사용
+  // - s_type=search_subject_memo : 제목+본문
+  // - s_type=search_comment      : 댓글
+  // URL 중복은 seenUrls로 제거
   const queries = userKeywords.length > 0
-    ? userKeywords.map(kw => ({
-        kw,
-        url: `${baseUrl}&s_type=search_subject_memo&s_keyword=${encodeURIComponent(kw)}`
-      }))
-    : [{ kw: null, url: baseUrl }];
+    ? userKeywords.flatMap(kw => [
+        { kw, type:'subject_memo',
+          url: `${baseUrl}&s_type=search_subject_memo&s_keyword=${encodeURIComponent(kw)}` },
+        { kw, type:'comment',
+          url: `${baseUrl}&s_type=search_comment&s_keyword=${encodeURIComponent(kw)}` },
+      ])
+    : [{ kw: null, type: null, url: baseUrl }];
 
-  for (const { kw, url: queryUrl } of queries) {
-    if (kw) log(`DC인사이드 ${game} 키워드 검색: "${kw}"`, 'info');
+  for (const { kw, type, url: queryUrl } of queries) {
+    if (kw) log(`DC인사이드 ${game} 키워드 검색: "${kw}" [${type}]`, 'info');
 
     for (let page=1; page<=7; page++) {
       const url = page===1 ? queryUrl : `${queryUrl}&page=${page}`;
@@ -634,122 +638,179 @@ async function scrapeDcinside(siteKey, dateFrom, dateTo, log, userKeywords=[]) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  컴프야V 공식 커뮤니티 SCRAPER
+//  컴프야V 공식 커뮤니티 SCRAPER  — /board/all 통합 게시판
+//  - 기존 board_idx 28(버그제보)/29(건의사항) 분리 수집을 폐기
+//  - getBoardContents API + idx=all 로 전체글 한 번에
+//  - 키워드 입력 시 본문+댓글 fetch 후 매칭
 // ═══════════════════════════════════════════════════════════════
-async function scrapeCpbvOfficial(dateFrom, dateTo, log) {
+async function scrapeCpbvOfficial(dateFrom, dateTo, log, userKeywords=[]) {
   const BASE = 'https://cpbv-community.com2us.com';
-  const boards = [[28,'버그제보'],[29,'건의사항']];
   const posts = [];
+  const wantDetail = userKeywords.length > 0;
 
-  for (const [boardIdx, boardName] of boards) {
-    log(`컴프야V 공식 [${boardName}]`, 'info');
-    for (let page=1; page<=5; page++) {
-      const body = new URLSearchParams({ page, board_idx:boardIdx, board_type:1, board_comment:1,
-        boardtype1_preview_image:1, is_mobile:0, select_type:0, view_type:'list' }).toString();
-      const html = await proxyPost(`${BASE}/board/list/getBoardList`, body,
-                                    { Referer:`${BASE}/board/${boardIdx}` });
-      if (!html) { log(`  페이지 ${page}: 모든 프록시 실패 (응답 없음)`, 'warn'); break; }
+  log(`컴프야V 공식 [전체글] (idx=all)`, 'info');
+  for (let page=1; page<=10; page++) {
+    const body = new URLSearchParams({
+      e_type:'board1', idx:'all', header:'', lang:'ko',
+      selectType:0, page_size:20, page_num:page, is_mobile:0, viewChk:'LIST'
+    }).toString();
+    const raw = await proxyPost(`${BASE}/board/list/getBoardContents`, body,
+                                 { Referer:`${BASE}/board/all` });
+    if (!raw) { log(`  페이지 ${page}: 응답 없음`, 'warn'); break; }
 
-      const positions = [...html.matchAll(/<li[^>]*onclick="detail\(/g)].map(m=>m.index);
-      let oldestDate = '9999', pageCount = 0;
+    let items = [];
+    try {
+      const j = JSON.parse(raw);
+      items = Array.isArray(j.data) ? j.data : [];
+    } catch { log(`  페이지 ${page}: JSON 파싱 실패`, 'warn'); break; }
+    if (!items.length) break;
 
-      for (let i=0; i<positions.length; i++) {
-        const block = html.slice(positions[i], positions[i+1]||html.length);
-        const idUrlM = block.match(/detail\('(\d+)',\s*'([^']+)'/);
-        if (!idUrlM) continue;
-        const [, , postUrl] = idUrlM;
+    let oldestDate = '9999', pageCount = 0, kwSkip = 0;
+    for (const item of items) {
+      const dateStr = DATE.parse(item.regdate || item.ymdhm_regdate);
+      if (!dateStr || !DATE.isReasonable(dateStr)) continue;
+      if (dateStr < oldestDate) oldestDate = dateStr;
+      if (!DATE.inRange(dateStr, dateFrom, dateTo)) continue;
 
-        const titleM = block.match(/<strong class="tit">([\s\S]*?)<\/strong>/);
-        const title = titleM ? esc(stripTags(titleM[1])) : '';
-        if (!title) continue;
+      const bidx = item.board_idx;
+      const postUrl = `${BASE}/board/${bidx}/${item.idx}`;
+      const title = esc(item.title || '');
+      if (!title) continue;
 
-        const dateM = block.match(/<em class="t_date"[^>]*>([\s\S]*?)<\/em>/);
-        const dateStr = dateM ? DATE.parse(dateM[1].trim()) : null;
-        if (!dateStr || !DATE.isReasonable(dateStr)) continue;
-        if (dateStr < oldestDate) oldestDate = dateStr;
-        if (!DATE.inRange(dateStr, dateFrom, dateTo)) continue;
-
-        let bodyText = '', images = [];
+      let bodyText = '', images = [], comments = '';
+      if (wantDetail) {
+        // 본문
         try {
           const detail = await proxyGet(postUrl);
           if (detail) {
-            const contentM = detail.match(/class="post_cont">([\s\S]*?)<!--\s*\/\/post_cont/);
-            if (contentM) {
-              images = [...contentM[1].matchAll(/<img[^>]*src=["']([^"']+)["']/g)].map(m=>m[1])
+            const ctM = detail.match(/class="post_cont">([\s\S]*?)<!--\s*\/\/post_cont/);
+            if (ctM) {
+              images = [...ctM[1].matchAll(/<img[^>]*src=["']([^"']+)["']/g)].map(m=>m[1])
                         .filter(u=>u.includes('cpbv-community.com2us.com/image')).slice(0,2);
-              bodyText = esc(stripTags(contentM[1])).slice(0,500);
+              bodyText = esc(stripTags(ctM[1])).slice(0,500);
             }
           }
         } catch {}
+        // 댓글
+        try {
+          const cmtBody = new URLSearchParams({ page:1, board_idx:bidx, contents_idx:item.idx }).toString();
+          const cmtRaw = await proxyPost(`${BASE}/board/list/getCommentList`, cmtBody,
+                                          { Referer:postUrl });
+          if (cmtRaw) {
+            try {
+              const cj = JSON.parse(cmtRaw);
+              if (cj.list_html) comments = esc(stripTags(cj.list_html)).slice(0,1000);
+            } catch {}
+          }
+        } catch {}
 
-        posts.push({ title, url:postUrl, date:dateStr, views:'0',
-                     source:'컴프야V 공식커뮤', game:'컴프야V', board:boardName,
-                     body:bodyText, images });
-        pageCount++;
-        await sleep(300);
+        // 키워드 매칭 (제목+본문+댓글)
+        const t = (title + ' ' + bodyText + ' ' + comments).toLowerCase();
+        if (!userKeywords.some(k => fuzzyIncludes(t, k))) { kwSkip++; await sleep(150); continue; }
       }
-      log(`  페이지 ${page} → ${pageCount}건, 최소날짜=${oldestDate}`);
-      if (oldestDate < dateFrom || positions.length < 10) break;
-      await sleep(500);
+
+      posts.push({
+        title, url:postUrl, date:dateStr,
+        views: String(item.view_count || 0),
+        source: '컴프야V 공식커뮤', game: '컴프야V', board: `board_${bidx}`,
+        body: bodyText + (comments ? `\n[댓글] ${comments.slice(0,300)}` : ''),
+        images,
+      });
+      pageCount++;
+      if (wantDetail) await sleep(150);
     }
+    log(`  페이지 ${page} → 수집 ${pageCount}건${kwSkip?` · 키워드 미스 ${kwSkip}`:''}, 최소날짜=${oldestDate}`);
+    if (oldestDate !== '9999' && oldestDate < dateFrom) break;
+    if (items.length < 20) break;
+    await sleep(500);
   }
   return posts;
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  MLB라이벌 공식 커뮤니티 SCRAPER
+//  MLB라이벌 공식 커뮤니티 SCRAPER  — /ko/board/all 통합 게시판
+//  - 기존 board_idx 21(버그제보)/17(자유) 분리 수집을 폐기
+//  - board_idx=all + 키워드 입력 시 댓글 fetch 후 매칭
 // ═══════════════════════════════════════════════════════════════
-async function scrapeRivalsOfficial(dateFrom, dateTo, log) {
+async function scrapeRivalsOfficial(dateFrom, dateTo, log, userKeywords=[]) {
   const BASE = 'https://community.withhive.com';
   const SLUG = 'MLB9IRIVALS';
-  const boards = [[21,'버그제보'],[17,'자유게시판']];
+  const apiUrl = `${BASE}/${SLUG}/board/list/getBoardList`;
+  const cmtUrl = `${BASE}/${SLUG}/board/list/getCommentList`;
   const posts  = [];
+  const wantDetail = userKeywords.length > 0;
 
-  for (const [boardIdx, boardName] of boards) {
-    log(`MLB라이벌 공식 [${boardName}]`, 'info');
-    const apiUrl = `${BASE}/${SLUG}/board/list/getBoardList`;
+  log(`MLB라이벌 공식 [전체글] (board_idx=all)`, 'info');
+  for (let page=1; page<=10; page++) {
+    const body = new URLSearchParams({
+      page, board_idx:'all', board_type:1, board_comment:1,
+      boardtype1_preview_image:1, is_mobile:0, select_type:0, view_type:'list'
+    }).toString();
+    const raw = await proxyPost(apiUrl, body, { Referer:`${BASE}/${SLUG}/ko/board/all` });
+    if (!raw) { log(`  페이지 ${page}: 응답 없음`, 'warn'); break; }
 
-    for (let page=1; page<=5; page++) {
-      const body = new URLSearchParams({ page, board_idx:boardIdx, board_type:1, board_comment:1,
-        boardtype1_preview_image:1, is_mobile:0, select_type:0, view_type:'list' }).toString();
-      const raw = await proxyPost(apiUrl, body, { Referer:`${BASE}/${SLUG}/board/${boardIdx}` });
-      if (!raw) { log(`  페이지 ${page}: 모든 프록시 실패 (응답 없음)`, 'warn'); break; }
+    let items = [];
+    try {
+      const j = JSON.parse(raw);
+      const cl = j.contents_list;
+      items = (cl && typeof cl === 'object' && Array.isArray(cl.list)) ? cl.list : [];
+    } catch { log(`  페이지 ${page}: JSON 파싱 실패`, 'warn'); break; }
+    if (!items.length) break;
 
-      let items = [];
-      try {
-        const j = JSON.parse(raw);
-        const cl = j.contents_list;
-        items = (typeof cl === 'object' && !Array.isArray(cl)) ? (cl.list||[]) : [];
-      } catch { break; }
-      if (!items.length) break;
+    let oldestDate = '9999', pageCount = 0, kwSkip = 0;
+    for (const item of items) {
+      if (typeof item !== 'object') continue;
+      const dateStr = DATE.parse(item.regdate);
+      if (!dateStr || !DATE.isReasonable(dateStr)) continue;
+      if (dateStr < oldestDate) oldestDate = dateStr;
+      if (!DATE.inRange(dateStr, dateFrom, dateTo)) continue;
 
-      let oldestDate = '9999', pageCount = 0;
-      for (const item of items) {
-        if (typeof item !== 'object') continue;
-        const dateStr = DATE.parse(item.regdate);
-        if (!dateStr || !DATE.isReasonable(dateStr)) continue;
-        if (dateStr < oldestDate) oldestDate = dateStr;
-        if (!DATE.inRange(dateStr, dateFrom, dateTo)) continue;
+      const postId  = item.idx || '';
+      const title   = esc(item.title || '');
+      if (!title || !postId) continue;
+      const bidx    = item.board_idx;
+      const postUrl = `${BASE}/${SLUG}/board/${bidx}/${postId}`;
+      const thumb   = decodeURIComponent(item.thumb || '');
+      const bodyHtml= item.body_noscript || '';
+      const bodyText= esc(stripTags(bodyHtml)).slice(0,500);
+      const imgs    = [...bodyHtml.matchAll(/<img[^>]*src=["']([^"']+)["']/g)].map(m=>m[1])
+                      .filter(u=>u.includes('withhive.com')).slice(0,2);
+      if (thumb.includes('withhive.com')) imgs.unshift(thumb);
 
-        const postId  = item.idx || '';
-        const title   = esc(item.title||'');
-        const bidx    = item.board_idx || boardIdx;
-        const postUrl = `${BASE}/${SLUG}/board/${bidx}/${postId}`;
-        const thumb   = decodeURIComponent(item.thumb||'');
-        const bodyHtml= item.body_noscript||'';
-        const bodyText= esc(stripTags(bodyHtml)).slice(0,500);
-        const imgs    = [...bodyHtml.matchAll(/<img[^>]*src=["']([^"']+)["']/g)].map(m=>m[1])
-                        .filter(u=>u.includes('withhive.com')).slice(0,2);
-        if (thumb.includes('withhive.com')) imgs.unshift(thumb);
-        posts.push({ title, url:postUrl, date:dateStr, views:String(item.view_count||0),
-                     source:'MLB라이벌 공식커뮤', game:'MLB라이벌', board:boardName,
-                     body:bodyText, images:imgs.slice(0,2) });
-        pageCount++;
+      let comments = '';
+      if (wantDetail) {
+        try {
+          const cmtBody = new URLSearchParams({
+            page:1, lang:'ko', contents_idx:postId, is_mobile:0
+          }).toString();
+          const cmtRaw = await proxyPost(cmtUrl, cmtBody, { Referer:postUrl });
+          if (cmtRaw) {
+            try {
+              const cj = JSON.parse(cmtRaw);
+              if (cj.list_html) comments = esc(stripTags(cj.list_html)).slice(0,1000);
+            } catch {}
+          }
+        } catch {}
+
+        // 키워드 매칭 (제목+본문+댓글)
+        const t = (title + ' ' + bodyText + ' ' + comments).toLowerCase();
+        if (!userKeywords.some(k => fuzzyIncludes(t, k))) { kwSkip++; await sleep(120); continue; }
       }
-      log(`  페이지 ${page} → ${pageCount}건, 최소날짜=${oldestDate}`);
-      if (oldestDate < dateFrom) break;
-      await sleep(500);
+
+      posts.push({
+        title, url:postUrl, date:dateStr,
+        views: String(item.view_count || 0),
+        source: 'MLB라이벌 공식커뮤', game: 'MLB라이벌', board: `board_${bidx}`,
+        body: bodyText + (comments ? `\n[댓글] ${comments.slice(0,300)}` : ''),
+        images: imgs.slice(0,2),
+      });
+      pageCount++;
+      if (wantDetail) await sleep(120);
     }
+    log(`  페이지 ${page} → 수집 ${pageCount}건${kwSkip?` · 키워드 미스 ${kwSkip}`:''}, 최소날짜=${oldestDate}`);
+    if (oldestDate !== '9999' && oldestDate < dateFrom) break;
+    if (items.length < 20) break;
+    await sleep(500);
   }
   return posts;
 }
@@ -800,29 +861,31 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
         if (!res.ok) { log(`  → API 오류 (${res.status})`, 'warn'); break; }
         const data = await res.json();
         const items = data.items || [];
-        if (!items.length) break;
+        const rawCount = (typeof data._rawCount === 'number') ? data._rawCount : items.length;
+
+        // 원본 응답이 0이면 더 이상 페이지 없음
+        if (rawCount === 0) break;
 
         let hitOldDate = false;
-        let skipUnreasonable = 0, skipRange = 0;
+        let skipNoDate = 0, skipUnreasonable = 0, skipRange = 0;
 
         for (const item of items) {
           if (seen.has(item.link)) continue;
           seen.add(item.link);
 
-          // [1차 검증] 날짜 파싱 + 합리성 검사 (서버 필터 통과 후 클라이언트 재확인)
+          // [엄격] postdate 없으면 무조건 제외 — 몇 년 전 글 유입 차단
           const dateStr = DATE.parse(item.postdate);
-          if (dateStr && !DATE.isReasonable(dateStr)) { skipUnreasonable++; continue; }
+          if (!dateStr) { skipNoDate++; continue; }
+          if (!DATE.isReasonable(dateStr)) { skipUnreasonable++; continue; }
 
-          // [2차 검증] 수집 기간 범위 확인 (서버 필터 이중 보장)
-          if (dateStr) {
-            if (dateStr < dateFrom) { hitOldDate = true; skipRange++; continue; }
-            if (dateStr > dateTo)   { skipRange++; continue; }
-          }
+          // 수집 기간 범위 확인 (서버 필터 이중 보장)
+          if (dateStr < dateFrom) { hitOldDate = true; skipRange++; continue; }
+          if (dateStr > dateTo)   { skipRange++; continue; }
 
           posts.push({
             title:  cleanHtml(item.title||''),
             url:    item.link||'',
-            date:   dateStr || today(),
+            date:   dateStr,
             views:  '0',
             source: `네이버카페(${cafeName})`,
             game:   gameName,
@@ -831,11 +894,12 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
           });
         }
 
-        if (skipUnreasonable || skipRange)
-          log(`  → [검증] 비정상날짜 ${skipUnreasonable}건 · 범위외 ${skipRange}건 제외`, 'warn');
+        if (skipNoDate || skipUnreasonable || skipRange)
+          log(`  → [검증] 날짜불명 ${skipNoDate}건 · 비정상 ${skipUnreasonable}건 · 범위외 ${skipRange}건 제외`, 'warn');
 
-        // dateFrom 이전 항목을 만났거나 마지막 페이지면 중단
-        if (hitOldDate || items.length < NAVER_PAGE_SIZE) break;
+        // 종료 조건: dateFrom 이전 항목 발견 OR API 원본 응답이 페이지 크기 미만
+        if (hitOldDate) break;
+        if (rawCount < NAVER_PAGE_SIZE) break;
         start += NAVER_PAGE_SIZE;
         await sleep(200);
       } catch(e) { log(`  → 키워드 "${kw}" 오류: ${e.message}`, 'warn'); break; }
@@ -1012,19 +1076,19 @@ document.getElementById('btnStart').addEventListener('click', async () => {
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
     }
 
-    // 컴프야V 공식
+    // 컴프야V 공식 (전체글 + 키워드 입력 시 본문/댓글 매칭)
     if (sites.includes('cpbv_official')) {
       log('=== 컴프야V 공식 커뮤니티 수집 시작 ===', 'info');
-      const p = await scrapeCpbvOfficial(dateFrom, dateTo, log);
+      const p = await scrapeCpbvOfficial(dateFrom, dateTo, log, userKeywords);
       allPosts.push(...p);
       log(`컴프야V 공식 완료: ${p.length}건`);
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
     }
 
-    // MLB라이벌 공식
+    // MLB라이벌 공식 (전체글 + 키워드 입력 시 댓글 매칭)
     if (sites.includes('rivals_official')) {
       log('=== MLB라이벌 공식 커뮤니티 수집 시작 ===', 'info');
-      const p = await scrapeRivalsOfficial(dateFrom, dateTo, log);
+      const p = await scrapeRivalsOfficial(dateFrom, dateTo, log, userKeywords);
       allPosts.push(...p);
       log(`MLB라이벌 공식 완료: ${p.length}건`);
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
@@ -1046,23 +1110,11 @@ document.getElementById('btnStart').addEventListener('click', async () => {
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
     }
 
-    // ── 사용자 검색어 필터 (공식 커뮤니티 한정) ────────────────
-    // - 네이버카페: API 검색어로 사전 필터됨
-    // - DC인사이드: s_keyword 검색 URL로 사전 필터됨
-    // - 공식 커뮤니티: 본문이 채워져 있으므로 title+body로 필터
-    if (userKeywords.length > 0) {
-      const before = allPosts.length;
-      allPosts = allPosts.filter(p => {
-        const src = p.source || '';
-        if (src.startsWith('네이버카페')) return true;
-        if (src.startsWith('DC인사이드')) return true;
-        const t = (p.title + ' ' + (p.body||'')).toLowerCase();
-        return userKeywords.some(k => fuzzyIncludes(t, k));
-      });
-      if (before !== allPosts.length) {
-        log(`검색어 필터 (공식커뮤) [${userKeywords.join(', ')}]: ${before}건 → ${allPosts.length}건`);
-      }
-    }
+    // ── 사후 키워드 필터 제거 ────────────────────────────────
+    // 모든 소스가 키워드 입력 단계에서 이미 사전 필터링됨:
+    //   네이버카페 — API 검색어
+    //   DC인사이드 — s_keyword (subject_memo + comment) 검색 URL
+    //   공식 커뮤니티 — /board/all 수집 후 본문+댓글 fetch 매칭
 
     // ── 카테고리 분류 ───────────────────────────────────────
     log(`=== 분류 중 (총 ${allPosts.length}건) ===`, 'info');

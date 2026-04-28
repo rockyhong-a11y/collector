@@ -25,14 +25,17 @@ export default async function handler(req, res) {
     });
     const data = await r.json();
 
-    // 서버 단 날짜 필터 — postdate가 확인되는 항목만 적용
+    // 서버 단 날짜 엄격 필터 — postdate가 없거나 비정상이면 제외
+    // (이전 버전은 날짜 불명을 통과시켜 몇 년 전 게시물이 섞여 들어옴)
+    const rawCount = Array.isArray(data.items) ? data.items.length : 0;
     if (data.items) {
       const now = new Date().toISOString().slice(0, 10);
       data.items = data.items.filter(item => {
         const pd = String(item.postdate || '').replace(/\D/g, '');
-        if (pd.length !== 8 || pd === '00000000') return true; // 날짜 불명 → 통과
+        // 날짜 불명 → 제외 (이전: 통과)
+        if (pd.length !== 8 || pd === '00000000') return false;
         const d = `${pd.slice(0, 4)}-${pd.slice(4, 6)}-${pd.slice(6, 8)}`;
-        // 합리성 검사: 2010년 이전이거나 미래 날짜 제거
+        // 합리성: 2010년 이전이거나 미래 → 제외
         if (d < '2010-01-01' || d > now) return false;
         // 수집 기간 범위 필터
         if (dateFrom && d < dateFrom) return false;
@@ -40,6 +43,8 @@ export default async function handler(req, res) {
         return true;
       });
     }
+    // 클라이언트 페이지네이션 종료 조건용 — API 원본 응답 건수
+    data._rawCount = rawCount;
 
     res.status(r.status).json(data);
   } catch (e) {
