@@ -694,11 +694,16 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log, userKeywords=[]) {
                 images = [...ctM[1].matchAll(/<img[^>]*src=["']([^"']+)["']/g)].map(m=>m[1])
                           .filter(u=>u.includes('cpbv-community.com2us.com/image')).slice(0,2);
                 bodyText = esc(stripTags(ctM[1])).slice(0,500);
+              } else {
+                // post_cont 영역 추출 실패 — 페이지 구조 변경 또는 레이아웃 차이
+                // 게시물을 폐기하지 않고 fetchFailed 처리
+                fetchFailed = true;
               }
             } else { fetchFailed = true; }
           } catch { fetchFailed = true; }
 
           // 3단계: 댓글 fetch (comment_count > 0 일 때만)
+          let cmtFetchFailed = false;
           if (+item.comment_count > 0) {
             try {
               const cmtBody = new URLSearchParams({ page:1, board_idx:bidx, contents_idx:item.idx }).toString();
@@ -708,10 +713,13 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log, userKeywords=[]) {
                 try {
                   const cj = JSON.parse(cmtRaw);
                   if (cj.list_html) comments = esc(stripTags(cj.list_html)).slice(0,1500);
-                } catch {}
-              }
-            } catch {}
+                  else cmtFetchFailed = true;
+                } catch { cmtFetchFailed = true; }
+              } else { cmtFetchFailed = true; }
+            } catch { cmtFetchFailed = true; }
           }
+          // 댓글 fetch 실패도 본문 fetch 실패와 동등하게 취급 (잠재 매칭 보존)
+          if (cmtFetchFailed && +item.comment_count > 0) fetchFailed = true;
 
           // 4단계: 본문+댓글 매칭
           const contentText = (bodyText + ' ' + comments).toLowerCase();
@@ -814,6 +822,7 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log, userKeywords=[]) {
 
           // 3단계: 본문 매칭 실패 시 댓글 fetch (comment_count > 0)
           if (!contentMatch && +item.comment_count > 0) {
+            let cmtFetchFailed = false;
             try {
               const cmtBody = new URLSearchParams({
                 page:1, lang:'ko', contents_idx:postId, is_mobile:0
@@ -823,9 +832,11 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log, userKeywords=[]) {
                 try {
                   const cj = JSON.parse(cmtRaw);
                   if (cj.list_html) comments = esc(stripTags(cj.list_html)).slice(0,1500);
-                } catch {}
-              } else { fetchFailed = true; }
-            } catch { fetchFailed = true; }
+                  else cmtFetchFailed = true;
+                } catch { cmtFetchFailed = true; }
+              } else { cmtFetchFailed = true; }
+            } catch { cmtFetchFailed = true; }
+            if (cmtFetchFailed) fetchFailed = true;
             if (comments) {
               contentMatch = userKeywords.some(k => fuzzyIncludes(comments.toLowerCase(), k));
             }
@@ -864,11 +875,13 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log, userKeywords=[]) {
 //  - cafeId: 수집 대상 카페 numeric ID (27851354 / 28683505)
 //  - customKeywords: 사용자 검색어 (없으면 기본 키워드 사용)
 // ═══════════════════════════════════════════════════════════════
-const NAVER_DEFAULT_KW = [
-  '버그','오류','에러','크래시','강종','튕김','팅김','안됨','먹통','프리징',
-  '접속불가','로그인불가','결제오류','데이터초기화',
-  '건의','개선','제안','추가요청','후기','패치','업데이트',
-];
+// Naver 검색 API는 query가 필수이므로, 키워드 미입력 시 카페별 폭넓은 단일
+// 단어(게임명)를 fallback으로 사용해 사실상 전체 카페글을 수집한다.
+// 다른 사이트(DC/공식 커뮤)와 동일하게 — 키워드 입력 시 그 키워드만, 없으면 전체.
+const NAVER_FALLBACK_KW = {
+  '27851354': '컴프야',  // 컴프야26 cafe
+  '28683505': 'MLB',     // MLB9이닝스 cafe
+};
 const NAVER_PAGE_SIZE  = 100;
 const NAVER_MAX_START  = 301; // 최대 300건 (start 1·101·201)
 
@@ -878,7 +891,13 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
   // 사전 probe 제거 — cold start나 일시적 지연으로 통째로 abort되는 것 방지
   // 실제 키워드 호출 단계에서 개별적으로 오류 처리
 
-  const keywords  = customKeywords.length > 0 ? customKeywords : NAVER_DEFAULT_KW;
+  // 키워드 미입력 시 — 카페 game 키워드를 fallback으로 사용 (사실상 전체 수집)
+  const keywords  = customKeywords.length > 0
+    ? customKeywords
+    : [NAVER_FALLBACK_KW[cafeId] || '게임'];
+  if (customKeywords.length === 0) {
+    log(`  키워드 미입력 — fallback "${keywords[0]}"으로 카페 전체 수집`);
+  }
   const posts     = [];
   const seen      = new Set();
   const cleanHtml = s => s.replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
