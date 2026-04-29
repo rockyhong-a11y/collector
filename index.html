@@ -349,25 +349,30 @@ function fuzzyIncludes(text, keyword) {
 // 1순위: Vercel 서버리스 프록시(/api/proxy) — 공개 프록시 장애 회피
 // 2순위: 공개 프록시(allorigins/codetabs/corsproxy) — 로컬·정적 호스팅 호환
 async function proxyGet(url, timeout=10000) {
-  // 1순위: 자체 서버 프록시
+  // 1순위: 별칭 경로 /relay (사파리 ad/contents blocker가 /api/* 패턴을 차단할 때 우회)
+  // 2순위: 직접 경로 /api/proxy
   let lastError = '';
-  try {
-    const ctrl = new AbortController();
-    const tid  = setTimeout(() => ctrl.abort(), timeout);
-    const r = await fetch(`/api/proxy?url=${encodeURIComponent(url)}`, { signal: ctrl.signal });
-    clearTimeout(tid);
-    if (r.ok) {
-      const text = await r.text();
-      if (text && text.length > 200) return text;
-      lastError = `HTTP ${r.status} 응답 짧음(${text.length}자)`;
-    } else {
-      lastError = `HTTP ${r.status}`;
+  for (const proxyPath of ['/relay', '/api/proxy']) {
+    try {
+      const ctrl = new AbortController();
+      const tid  = setTimeout(() => ctrl.abort(), timeout);
+      const r = await fetch(`${proxyPath}?url=${encodeURIComponent(url)}`, {
+        signal: ctrl.signal, cache: 'no-store', credentials: 'omit'
+      });
+      clearTimeout(tid);
+      if (r.ok) {
+        const text = await r.text();
+        if (text && text.length > 200) return text;
+        lastError = `[${proxyPath}] HTTP ${r.status} 응답 짧음(${text.length}자)`;
+      } else {
+        lastError = `[${proxyPath}] HTTP ${r.status}`;
+      }
+    } catch(e) {
+      lastError = `[${proxyPath}] ${e.name||'Error'}:${e.message}`;
     }
-  } catch(e) {
-    lastError = `${e.name||'Error'}:${e.message}`;
   }
-  console.warn(`[proxyGet] /api/proxy 실패: ${lastError}, 공개 프록시로 폴백`);
-  if (typeof window.__proxyDiag === 'function') window.__proxyDiag('proxyGet /api/proxy 실패: ' + lastError);
+  console.warn(`[proxyGet] 자체 프록시 실패: ${lastError}, 공개 프록시로 폴백`);
+  if (typeof window.__proxyDiag === 'function') window.__proxyDiag('proxyGet 실패: ' + lastError);
 
   // 2순위: 공개 CORS 프록시
   const proxies = [
@@ -390,30 +395,33 @@ async function proxyGet(url, timeout=10000) {
 }
 
 async function proxyPost(url, body, extraHeaders={}, timeout=10000) {
-  // 1순위: 자체 서버 프록시 (가장 안정적)
+  // 1순위: 별칭 경로 /relay  2순위: 직접 경로 /api/proxy
   let lastError = '';
-  try {
-    const ctrl = new AbortController();
-    const tid  = setTimeout(() => ctrl.abort(), timeout);
-    const refQ = extraHeaders.Referer ? `&referer=${encodeURIComponent(extraHeaders.Referer)}` : '';
-    const r = await fetch(`/api/proxy?url=${encodeURIComponent(url)}${refQ}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-      body, signal: ctrl.signal
-    });
-    clearTimeout(tid);
-    if (r.ok) {
-      const text = await r.text();
-      if (text && text.length > 50) return text;
-      lastError = `HTTP ${r.status} 응답 짧음(${text.length}자)`;
-    } else {
-      lastError = `HTTP ${r.status}`;
+  const refQ = extraHeaders.Referer ? `&referer=${encodeURIComponent(extraHeaders.Referer)}` : '';
+  for (const proxyPath of ['/relay', '/api/proxy']) {
+    try {
+      const ctrl = new AbortController();
+      const tid  = setTimeout(() => ctrl.abort(), timeout);
+      const r = await fetch(`${proxyPath}?url=${encodeURIComponent(url)}${refQ}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+        body, signal: ctrl.signal,
+        cache: 'no-store', credentials: 'omit'
+      });
+      clearTimeout(tid);
+      if (r.ok) {
+        const text = await r.text();
+        if (text && text.length > 50) return text;
+        lastError = `[${proxyPath}] HTTP ${r.status} 응답 짧음(${text.length}자)`;
+      } else {
+        lastError = `[${proxyPath}] HTTP ${r.status}`;
+      }
+    } catch(e) {
+      lastError = `[${proxyPath}] ${e.name||'Error'}:${e.message}`;
     }
-  } catch(e) {
-    lastError = `${e.name||'Error'}:${e.message}`;
   }
-  console.warn(`[proxyPost] /api/proxy 실패: ${lastError}, 공개 프록시로 폴백`);
-  if (typeof window.__proxyDiag === 'function') window.__proxyDiag('proxyPost /api/proxy 실패: ' + lastError);
+  console.warn(`[proxyPost] 자체 프록시 실패: ${lastError}, 공개 프록시로 폴백`);
+  if (typeof window.__proxyDiag === 'function') window.__proxyDiag('proxyPost 실패: ' + lastError);
 
   // 2순위: 공개 CORS 프록시
   const proxies = [
@@ -926,10 +934,26 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
     while (start < NAVER_MAX_START) {
       try {
         const params = new URLSearchParams({ keyword: kw, cafeId, display: NAVER_PAGE_SIZE, start, dateFrom, dateTo });
-        const res = await fetch('/api/naver?' + params);
-        if (!res.ok) {
-          const errText = await res.text().catch(()=>'');
-          log(`  → API 오류 (HTTP ${res.status}) ${errText.slice(0,120)}`, 'err');
+        // 1순위 /cafe (별칭) → 2순위 /api/naver — 사파리 /api/* 차단 회피
+        let res = null, lastErr = '';
+        for (const apiPath of ['/cafe', '/api/naver']) {
+          try {
+            const ctrl = new AbortController();
+            const tid  = setTimeout(() => ctrl.abort(), 12000);
+            res = await fetch(`${apiPath}?${params}`, {
+              signal: ctrl.signal, cache: 'no-store', credentials: 'omit'
+            });
+            clearTimeout(tid);
+            if (res && res.ok) break;
+            lastErr = `[${apiPath}] HTTP ${res?.status}`;
+          } catch(e) {
+            lastErr = `[${apiPath}] ${e.name||'Error'}:${e.message}`;
+            res = null;
+          }
+        }
+        if (!res || !res.ok) {
+          const errText = res ? await res.text().catch(()=>'') : '';
+          log(`  → API 오류 ${lastErr} ${errText.slice(0,120)}`, 'err');
           break;
         }
         const data = await res.json();
@@ -1153,20 +1177,25 @@ document.getElementById('btnStart').addEventListener('click', async () => {
   btnStart.disabled = true;
   btnStart.innerHTML = '<span class="spin"></span><span>수집 중...</span>';
 
-  // 시작 시 /api/* 라우트 도달 가능 여부 빠른 진단 (각 1초 내 응답 확인)
-  // — Vercel 배포 환경에서만 동작하므로 로컬·일부 사파리 환경 단서 제공
+  // 시작 시 백엔드 도달 진단 — /cafe(별칭)와 /api/naver(직접) 두 경로 모두 ping
+  // 한쪽이라도 통과하면 그 경로를 우선 사용
   setTimeout(async () => {
-    try {
-      const ctrl = new AbortController();
-      const tid = setTimeout(() => ctrl.abort(), 5000);
-      const t0 = Date.now();
-      const r = await fetch('/api/naver?keyword=ping&display=1', { signal: ctrl.signal });
-      clearTimeout(tid);
-      const ms = Date.now() - t0;
-      addLog(`[진단] /api/naver 응답 HTTP ${r.status} (${ms}ms) — 정상 도달`, 'info');
-    } catch(e) {
-      addLog(`[진단] /api/naver 도달 실패 [${e.name||'Error'}]: ${e.message} — 사파리 네트워크/콘텐츠 차단 가능성. https://collector-nu.vercel.app 직접 접속 + 강제 새로고침(Cmd+Opt+R) 권장`, 'err');
+    for (const apiPath of ['/cafe', '/api/naver']) {
+      try {
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 5000);
+        const t0 = Date.now();
+        const r = await fetch(`${apiPath}?keyword=ping&display=1`, {
+          signal: ctrl.signal, cache: 'no-store', credentials: 'omit'
+        });
+        clearTimeout(tid);
+        const ms = Date.now() - t0;
+        addLog(`[진단] ${apiPath} 응답 HTTP ${r.status} (${ms}ms) — 도달 OK`, 'info');
+      } catch(e) {
+        addLog(`[진단] ${apiPath} 도달 실패 [${e.name||'Error'}]: ${e.message}`, 'err');
+      }
     }
+    addLog(`[진단] 두 경로 모두 실패 시: 사파리 콘텐츠 차단기/확장 비활성화 또는 시크릿 창에서 시도해 보세요`, 'info');
   }, 100);
 
   document.getElementById('progressSection').style.display = 'block';

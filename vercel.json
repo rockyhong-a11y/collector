@@ -1,5 +1,8 @@
 {
   "rewrites": [
-    { "source": "/api/naver", "destination": "/api/naver" }
+    { "source": "/api/naver", "destination": "/api/naver" },
+    { "source": "/api/proxy", "destination": "/api/proxy" },
+    { "source": "/cafe",      "destination": "/api/naver" },
+    { "source": "/relay",     "destination": "/api/proxy" }
   ]
 }
