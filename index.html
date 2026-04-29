@@ -248,7 +248,7 @@ tbody tr:hover td{background:#1c2128}
   <div class="card">
     <div class="card-title">🔍 검색어 (선택)</div>
     <div class="field">
-      <label class="field-label">키워드 — 쉼표 또는 공백으로 구분 &nbsp;·&nbsp; 비워두면 기간 내 전체 수집 &nbsp;·&nbsp; 입력 시 DC·네이버는 검색 URL/API로 사전 필터</label>
+      <label class="field-label">키워드 — 쉼표 또는 공백으로 구분 &nbsp;·&nbsp; 비워두면 기간 내 버그/이슈·의견/평가 항목만 수집 &nbsp;·&nbsp; 입력 시 제목·본문·댓글에서 매칭</label>
       <input type="text" id="keywords" placeholder="예: 버그, 크래시, 결제 오류, 업데이트">
     </div>
   </div>
@@ -491,16 +491,18 @@ const GAME_MAP = {
 const SEV_CRITICAL = ['결제','과금','충전','접속 불가','로그인 불가','크래시','crash','초기화','데이터 유실','데이터 사라','critical','치명'];
 const SEV_HIGH     = ['오류','error','버그','bug','강종','강제종료','먹통','팅김','튕김','프리징','안됨','불가'];
 
-function classifyCategory(title, body, activeFilters) {
+function classifyCategory(title, body, activeFilters, strict=false) {
   const t = (title + ' ' + body).toLowerCase();
-  // 퍼지 매칭: 정확 일치 + 편집거리 1 이내 유사 단어 허용
-  // 검색어 없이 수집된 일반 글도 의견/평가로 자동 분류 (기본값)
-  let cat = '의견/평가';
+  // strict=true (검색어 미입력): BUG_KW 또는 OPINION_KW 매칭 필수 → 미매칭 글 제외
+  // strict=false (검색어 입력): 사이트별 사전 필터로 이미 매칭된 글이므로
+  //                            카테고리 미분류는 의견/평가 기본값으로 통과
+  let cat = strict ? null : '의견/평가';
   if (BUG_KW.some(k => fuzzyIncludes(t, k))) {
     cat = '버그/이슈';
   } else if (OPINION_KW.some(k => fuzzyIncludes(t, k))) {
     cat = '의견/평가';
   }
+  if (cat === null) return null;
   if (activeFilters.has(cat)) return cat;
   return null;
 }
@@ -890,13 +892,15 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log, userKeywords=[]) {
 //  - cafeId: 수집 대상 카페 numeric ID (27851354 / 28683505)
 //  - customKeywords: 사용자 검색어 (없으면 기본 키워드 사용)
 // ═══════════════════════════════════════════════════════════════
-// Naver 검색 API는 query가 필수이므로, 키워드 미입력 시 카페별 폭넓은 단일
-// 단어(게임명)를 fallback으로 사용해 사실상 전체 카페글을 수집한다.
-// 다른 사이트(DC/공식 커뮤)와 동일하게 — 키워드 입력 시 그 키워드만, 없으면 전체.
-const NAVER_FALLBACK_KW = {
-  '27851354': '컴프야',  // 컴프야26 cafe
-  '28683505': 'MLB',     // MLB9이닝스 cafe
-};
+// Naver 검색 API는 query가 필수이므로, 키워드 미입력 시 BUG/OPINION 카테고리
+// 키워드를 순회 검색하여 다른 사이트와 동일한 기준으로 수집한다.
+// 즉, 검색어가 없을 때 "버그/이슈, 의견/평가 항목만" 가져와 strict 분류 필터를 통과시킴.
+const NAVER_CATEGORY_KW = [
+  // BUG/이슈 대표 키워드
+  '버그','오류','에러','크래시','튕김','먹통','안됨','로딩','강종','접속불가',
+  // 의견/평가 대표 키워드
+  '건의','개선','후기','평가','업데이트','패치','피드백','제안','추천',
+];
 const NAVER_PAGE_SIZE  = 100;
 const NAVER_MAX_START  = 301; // 최대 300건 (start 1·101·201)
 
@@ -906,12 +910,12 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
   // 사전 probe 제거 — cold start나 일시적 지연으로 통째로 abort되는 것 방지
   // 실제 키워드 호출 단계에서 개별적으로 오류 처리
 
-  // 키워드 미입력 시 — 카페 game 키워드를 fallback으로 사용 (사실상 전체 수집)
+  // 키워드 미입력 시 — BUG/OPINION 카테고리 키워드 순회로 다른 사이트 기준 매칭
   const keywords  = customKeywords.length > 0
     ? customKeywords
-    : [NAVER_FALLBACK_KW[cafeId] || '게임'];
+    : NAVER_CATEGORY_KW;
   if (customKeywords.length === 0) {
-    log(`  키워드 미입력 — fallback "${keywords[0]}"으로 카페 전체 수집`);
+    log(`  키워드 미입력 — 카테고리 키워드 ${keywords.length}개 순회 수집 시작`);
   }
   const posts     = [];
   const seen      = new Set();
@@ -994,15 +998,31 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
     await sleep(150);
   }
 
+  // ── 2차 날짜 검증 — 수집된 모든 게시물의 날짜가 [dateFrom, dateTo] 범위 내인지 재확인
+  // (서버 필터/클라이언트 필터를 통과했더라도, 출력 직전 한 번 더 보장)
+  const before = posts.length;
+  const verified = posts.filter(p => {
+    if (!p.date) return false;
+    if (!DATE.isReasonable(p.date)) return false;
+    if (p.date < dateFrom || p.date > dateTo) return false;
+    return true;
+  });
+  const droppedByVerify = before - verified.length;
+  if (droppedByVerify > 0) {
+    log(`  [2차 날짜 검증] ${before}건 → ${verified.length}건 (${droppedByVerify}건 기간 불일치 제외)`, 'warn');
+  } else if (before > 0) {
+    log(`  [2차 날짜 검증] 모든 ${before}건 기간 일치 ✓`);
+  }
+
   const statusEl = document.getElementById('naverStatus_' + statusKey);
   const countEl  = document.getElementById('naverCount_' + statusKey);
   if (statusEl && countEl) {
     statusEl.classList.add('received');
     statusEl.querySelector('.cafe-name').innerHTML = `✅ ${cafeName}`;
-    countEl.textContent = posts.length;
+    countEl.textContent = verified.length;
   }
-  log(`네이버카페 [${cafeName}] 완료: ${posts.length}건`);
-  return posts;
+  log(`네이버카페 [${cafeName}] 완료: ${verified.length}건 (검증)`);
+  return verified;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1220,12 +1240,16 @@ document.getElementById('btnStart').addEventListener('click', async () => {
     //   공식 커뮤니티 — /board/all 수집 후 본문+댓글 fetch 매칭
 
     // ── 카테고리 분류 ───────────────────────────────────────
-    log(`=== 분류 중 (총 ${allPosts.length}건) ===`, 'info');
+    // 검색어 미입력 → strict 모드 (BUG/OPINION 미매칭 글은 제외)
+    // 검색어 입력 → permissive 모드 (사이트가 이미 키워드로 사전 필터함)
+    const strictMode = userKeywords.length === 0;
+    log(`=== 분류 중 (총 ${allPosts.length}건${strictMode?' · strict':' · permissive'}) ===`, 'info');
     setProgress(90, '분류 중...');
     const filtered = [];
+    let droppedNoCategory = 0;
     for (const p of allPosts) {
-      const cat = classifyCategory(p.title, p.body, cats);
-      if (cat === null) continue;
+      const cat = classifyCategory(p.title, p.body, cats, strictMode);
+      if (cat === null) { droppedNoCategory++; continue; }
       p.category        = cat;
       p.game_classified = p.game || classifyGame(p.title, p.body, p.hint||p.source||'');
       p.severity        = classifySeverity(p.title, p.body);
@@ -1233,6 +1257,7 @@ document.getElementById('btnStart').addEventListener('click', async () => {
       p.frequency       = '미상';
       filtered.push(p);
     }
+    if (droppedNoCategory) log(`  → 카테고리 미매칭 ${droppedNoCategory}건 제외 (strict 필터)`);
     log(`분류 완료: ${filtered.length}건`);
     setProgress(100, `✅ 완료 — ${filtered.length}건 수집`);
 
