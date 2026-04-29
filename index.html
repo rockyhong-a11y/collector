@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>⚾ 야구 게임 커뮤니티 수집 툴</title>
 <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
 <style>
@@ -345,8 +348,9 @@ function fuzzyIncludes(text, keyword) {
 // ── CORS proxy ──────────────────────────────────────────────
 // 1순위: Vercel 서버리스 프록시(/api/proxy) — 공개 프록시 장애 회피
 // 2순위: 공개 프록시(allorigins/codetabs/corsproxy) — 로컬·정적 호스팅 호환
-async function proxyGet(url, timeout=15000) {
+async function proxyGet(url, timeout=10000) {
   // 1순위: 자체 서버 프록시
+  let lastError = '';
   try {
     const ctrl = new AbortController();
     const tid  = setTimeout(() => ctrl.abort(), timeout);
@@ -355,10 +359,15 @@ async function proxyGet(url, timeout=15000) {
     if (r.ok) {
       const text = await r.text();
       if (text && text.length > 200) return text;
+      lastError = `HTTP ${r.status} 응답 짧음(${text.length}자)`;
+    } else {
+      lastError = `HTTP ${r.status}`;
     }
   } catch(e) {
-    console.warn(`[proxyGet] /api/proxy 실패: ${e.message}, 공개 프록시로 폴백`);
+    lastError = `${e.name||'Error'}:${e.message}`;
   }
+  console.warn(`[proxyGet] /api/proxy 실패: ${lastError}, 공개 프록시로 폴백`);
+  if (typeof window.__proxyDiag === 'function') window.__proxyDiag('proxyGet /api/proxy 실패: ' + lastError);
 
   // 2순위: 공개 CORS 프록시
   const proxies = [
@@ -380,8 +389,9 @@ async function proxyGet(url, timeout=15000) {
   return '';
 }
 
-async function proxyPost(url, body, extraHeaders={}, timeout=15000) {
+async function proxyPost(url, body, extraHeaders={}, timeout=10000) {
   // 1순위: 자체 서버 프록시 (가장 안정적)
+  let lastError = '';
   try {
     const ctrl = new AbortController();
     const tid  = setTimeout(() => ctrl.abort(), timeout);
@@ -395,10 +405,15 @@ async function proxyPost(url, body, extraHeaders={}, timeout=15000) {
     if (r.ok) {
       const text = await r.text();
       if (text && text.length > 50) return text;
+      lastError = `HTTP ${r.status} 응답 짧음(${text.length}자)`;
+    } else {
+      lastError = `HTTP ${r.status}`;
     }
   } catch(e) {
-    console.warn(`[proxyPost] /api/proxy 실패: ${e.message}, 공개 프록시로 폴백`);
+    lastError = `${e.name||'Error'}:${e.message}`;
   }
+  console.warn(`[proxyPost] /api/proxy 실패: ${lastError}, 공개 프록시로 폴백`);
+  if (typeof window.__proxyDiag === 'function') window.__proxyDiag('proxyPost /api/proxy 실패: ' + lastError);
 
   // 2순위: 공개 CORS 프록시
   const proxies = [
@@ -967,7 +982,14 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
         if (rawCount < NAVER_PAGE_SIZE) break;
         start += NAVER_PAGE_SIZE;
         await sleep(200);
-      } catch(e) { log(`  → 키워드 "${kw}" 오류: ${e.message}`, 'warn'); break; }
+      } catch(e) {
+        // Safari에서 'Load failed'는 네트워크 차단/CORS/보호 리디렉트 등을 가리킨다
+        const hint = e.message === 'Load failed' || /load failed/i.test(e.message)
+          ? ' — 사파리 네트워크 차단 가능성. 브라우저 검사기 → 네트워크 탭에서 실제 응답 확인 권장. URL에 collector-nu.vercel.app 직접 접속해보세요.'
+          : '';
+        log(`  → 키워드 "${kw}" 오류 [${e.name||'Error'}]: ${e.message}${hint}`, 'err');
+        break;
+      }
     }
     await sleep(150);
   }
@@ -1110,6 +1132,22 @@ document.getElementById('btnStart').addEventListener('click', async () => {
   const btnStart = document.getElementById('btnStart');
   btnStart.disabled = true;
   btnStart.innerHTML = '<span class="spin"></span><span>수집 중...</span>';
+
+  // 시작 시 /api/* 라우트 도달 가능 여부 빠른 진단 (각 1초 내 응답 확인)
+  // — Vercel 배포 환경에서만 동작하므로 로컬·일부 사파리 환경 단서 제공
+  setTimeout(async () => {
+    try {
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), 5000);
+      const t0 = Date.now();
+      const r = await fetch('/api/naver?keyword=ping&display=1', { signal: ctrl.signal });
+      clearTimeout(tid);
+      const ms = Date.now() - t0;
+      addLog(`[진단] /api/naver 응답 HTTP ${r.status} (${ms}ms) — 정상 도달`, 'info');
+    } catch(e) {
+      addLog(`[진단] /api/naver 도달 실패 [${e.name||'Error'}]: ${e.message} — 사파리 네트워크/콘텐츠 차단 가능성. https://collector-nu.vercel.app 직접 접속 + 강제 새로고침(Cmd+Opt+R) 권장`, 'err');
+    }
+  }, 100);
 
   document.getElementById('progressSection').style.display = 'block';
   document.getElementById('resultsSection').style.display  = 'none';
