@@ -965,13 +965,13 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
         const items = data.items || [];
         const rawCount = (typeof data._rawCount === 'number') ? data._rawCount : items.length;
         const filteredOutByServer = rawCount - items.length;
-        const enrich = data._enrich || {};
+        const uncertainCount = data._uncertain || 0;
 
         if (start === 1) {
-          const enrichNote = enrich.candidatesCount
-            ? ` · 날짜보강 시도 ${enrich.attempted}/${enrich.candidatesCount}`
+          const note = uncertainCount
+            ? ` · 추정 ${uncertainCount}건`
             : '';
-          log(`  키워드 "${kw}" — API 원본 ${rawCount}건, 서버필터 통과 ${items.length}건${enrichNote}`);
+          log(`  키워드 "${kw}" — API 원본 ${rawCount}건, 통과 ${items.length}건${note}`);
         }
 
         // 원본 응답 자체가 0이면 — Naver에 해당 키워드 결과 없음. 다음 키워드.

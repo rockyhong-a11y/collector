@@ -1,74 +1,11 @@
-// Naver Search API 래퍼 + 날짜 보강 (date enrichment)
-// 컴투스 야구 카페들은 cafearticle.json 응답에서 postdate가 비거나 00000000인 경우가
-// 매우 많아 (사용자 로그상 90%+) 클라이언트 strict 필터로 0건 결과 발생.
-// 보강 절차:
-//   1) postdate 유효 → 그대로 사용
-//   2) description에서 YYYY-MM-DD/YYYY.MM.DD/YYYY년 M월 D일 정규식 추출
-//   3) 카페 링크를 직접 fetch하여 메타 태그(article:published_time) 또는 본문 날짜 추출
-
-const MAX_ENRICH        = 30;    // request당 최대 보강 시도 항목 수 (Vercel 실행시간 제약)
-const ENRICH_PARALLEL   = 10;    // 동시 fetch
-const ENRICH_TIMEOUT_MS = 3500;  // 개별 fetch 제한
-const DATE_PAT_NUMERIC  = /(20\d{2})[\.\-\/]\s*(\d{1,2})[\.\-\/]\s*(\d{1,2})/;
-const DATE_PAT_KOREAN   = /(20\d{2})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/;
-const DATE_PAT_META     = /property=["']article:published_time["'][^>]*content=["']([^"']+)["']/;
-
-function pad2(n) { return String(n).padStart(2,'0'); }
-function fmt(y,m,d) { return `${y}-${pad2(m)}-${pad2(d)}`; }
-
-function extractDate(text) {
-  if (!text) return null;
-  let m = text.match(DATE_PAT_NUMERIC);
-  if (m) return fmt(m[1], m[2], m[3]);
-  m = text.match(DATE_PAT_KOREAN);
-  if (m) return fmt(m[1], m[2], m[3]);
-  return null;
-}
-
-async function enrichItem(item) {
-  // 1) description
-  const fromDesc = extractDate(item.description || '');
-  if (fromDesc) { item._date = fromDesc; return; }
-  // 2) link fetch
-  if (!item.link) return;
-  try {
-    const ctrl = new AbortController();
-    const tid = setTimeout(() => ctrl.abort(), ENRICH_TIMEOUT_MS);
-    const r = await fetch(item.link, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-        'Accept-Language': 'ko-KR,ko;q=0.9',
-      },
-      redirect: 'follow',
-      signal: ctrl.signal,
-    });
-    clearTimeout(tid);
-    if (!r.ok) return;
-    const html = await r.text();
-    // article:published_time 메타 (최우선)
-    const meta = html.match(DATE_PAT_META);
-    if (meta && meta[1]) {
-      const d = meta[1].slice(0, 10);
-      if (/^20\d{2}-\d{2}-\d{2}$/.test(d)) { item._date = d; return; }
-    }
-    // 본문 날짜 (한글/숫자 형식)
-    const fromHtml = extractDate(html);
-    if (fromHtml) item._date = fromHtml;
-  } catch {}
-}
-
-async function enrichBatch(items) {
-  const candidates = items.filter(it => {
-    const pd = String(it.postdate || '').replace(/\D/g, '');
-    return pd.length !== 8 || pd === '00000000';
-  });
-  const toEnrich = candidates.slice(0, MAX_ENRICH);
-  for (let i = 0; i < toEnrich.length; i += ENRICH_PARALLEL) {
-    const batch = toEnrich.slice(i, i + ENRICH_PARALLEL);
-    await Promise.all(batch.map(enrichItem));
-  }
-  return { candidatesCount: candidates.length, attempted: toEnrich.length };
-}
+// Naver Search API 래퍼
+// 컴투스 야구 카페들은 cafearticle.json 응답에서 postdate가 거의 누락됨.
+// description에서 날짜를 추출하려 시도했으나, description은 본문 일부이고 그 안의
+// 날짜는 보통 게시 일자가 아닌 이벤트 기간/인용 날짜라 false-rejection을 유발.
+// 따라서 enrichment를 빼고 다음 정책 사용:
+//   - postdate가 유효하면 strict dateRange 검사
+//   - postdate가 없거나 0인 항목은 dateTo로 추정하고 _dateUncertain 마킹 → 항상 통과
+//   - 클라이언트에서 [날짜추정] 라벨로 식별
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -98,41 +35,32 @@ export default async function handler(req, res) {
     const data = await r.json();
 
     const rawCount = Array.isArray(data.items) ? data.items.length : 0;
-    let enrichInfo = { candidatesCount: 0, attempted: 0 };
+    let uncertainCount = 0;
 
     if (data.items) {
-      // 보강: postdate 누락 항목에 _date 설정 (description regex만 효과적,
-      // 카페 페이지는 SPA 셸 반환이라 fetch로는 날짜 추출 안됨)
-      enrichInfo = await enrichBatch(data.items);
-
       const now = new Date().toISOString().slice(0, 10);
       const fallbackDate = dateTo || now;
 
       data.items = data.items.filter(item => {
         const pd = String(item.postdate || '').replace(/\D/g, '');
-        let d, uncertain = false;
         if (pd.length === 8 && pd !== '00000000') {
-          d = `${pd.slice(0, 4)}-${pd.slice(4, 6)}-${pd.slice(6, 8)}`;
-        } else if (item._date) {
-          d = item._date;
+          const d = `${pd.slice(0, 4)}-${pd.slice(4, 6)}-${pd.slice(6, 8)}`;
+          // postdate 유효 — strict 범위 검사
+          if (d < '2010-01-01' || d > now) return false;
+          if (dateFrom && d < dateFrom) return false;
+          if (dateTo   && d > dateTo)   return false;
+          return true;
         } else {
-          // 날짜 미확보 — sort=date 응답이므로 최근글일 가능성 높음
-          // dateTo(또는 today)로 추정하고 _dateUncertain 플래그
-          d = fallbackDate;
-          uncertain = true;
-          item._date = d;
+          // postdate 없음 — sort=date 신뢰하여 통과 + 추정 플래그
+          item._date = fallbackDate;
           item._dateUncertain = true;
+          uncertainCount++;
+          return true;
         }
-        if (d < '2010-01-01' || d > now) return false;
-        // 추정 항목은 범위 검사 통과 (sort=date 신뢰)
-        if (uncertain) return true;
-        if (dateFrom && d < dateFrom) return false;
-        if (dateTo   && d > dateTo)   return false;
-        return true;
       });
     }
     data._rawCount = rawCount;
-    data._enrich = enrichInfo;
+    data._uncertain = uncertainCount;
 
     res.status(r.status).json(data);
   } catch (e) {
