@@ -74,32 +74,54 @@ function extractCards(html, today) {
     if (seen.has(key)) continue;
 
     // forward window
-    const window = html.slice(pos.idx, pos.idx + 3000);
+    const window = html.slice(pos.idx, pos.idx + 3500);
     const dm = window.match(datePatterns);
     if (!dm) continue;
     const date = parseDateText(dm[1], today);
     if (!date) continue;
 
-    // backward 800자에서 a 태그 텍스트 추출 시도 → 제목
-    const back = html.slice(Math.max(0, pos.idx - 800), pos.idx);
-    let title = '';
-    const tm = back.match(/<a\s[^>]*>([^<]{3,200})<\/a>(?![\s\S]*?<a)/);
-    if (tm) title = tm[1].replace(/<[^>]+>/g, '').trim();
+    // 텍스트 추출 — script/style 제거 후 태그 → 파이프 구분자
+    const cleaned = window
+      .replace(/<script[\s\S]*?<\/script>/g, '')
+      .replace(/<style[\s\S]*?<\/style>/g, '')
+      .replace(/<[^>]+>/g, '|')
+      .replace(/\|+/g, '|');
 
-    // description / snippet — 카드 내 본문 텍스트
-    const winText = window.replace(/<script[\s\S]*?<\/script>/g, '')
-                          .replace(/<[^>]+>/g, ' ')
-                          .replace(/\s+/g, ' ').trim();
-    const description = winText.slice(0, 200);
+    // 파이프 단위 텍스트 분리 → 검색결과 카드의 텍스트들
+    const texts = cleaned.split('|')
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+
+    // 카페 카드 패턴:
+    //   ... [카페명] [대표/유저] [날짜] [제목+본문 한 줄] ...
+    // 날짜 텍스트의 인덱스 찾기 → 그 다음 첫 의미있는 텍스트가 제목/본문
+    const dateText = dm[1].trim();
+    const di = texts.findIndex(t => t === dateText || t.includes(dateText));
+    let title = '', description = '';
+    if (di >= 0 && di + 1 < texts.length) {
+      // 다음 의미있는 텍스트들 합쳐서 본문/제목 후보
+      for (let k = di + 1; k < Math.min(di + 5, texts.length); k++) {
+        const t = texts[k];
+        if (t.length < 5) continue;
+        if (/^(?:Keep|문서|검색|이미지|링크)/.test(t)) continue;
+        if (!title) {
+          // 첫 줄을 제목으로 (앞 80자)
+          title = t.slice(0, 100);
+        }
+        description += t + ' ';
+        if (description.length > 250) break;
+      }
+    }
+    description = description.trim().slice(0, 300);
 
     seen.add(key);
     items.push({
-      title: title || winText.slice(0, 80),
+      title: title || description.slice(0, 60),
       link: `https://cafe.naver.com/${pos.cafe}/${pos.aid}`,
       description,
       cafename: pos.cafe,
-      _date: date,        // YYYY-MM-DD 검증된 날짜
-      postdate: date.replace(/-/g, ''), // 호환성을 위한 YYYYMMDD 형식
+      _date: date,
+      postdate: date.replace(/-/g, ''),
     });
   }
   return items;
