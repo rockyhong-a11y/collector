@@ -967,15 +967,15 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
         const filteredOutByServer = rawCount - items.length;
         const anchorCnt   = data._anchors || 0;
         const interpCnt   = data._interpolated || 0;
-        const uncertainCnt = data._uncertain || 0;
+        const noInfoCnt   = data._noInfo || 0;
 
         if (start === 1) {
           const tag = [];
-          if (anchorCnt)   tag.push(`정확 ${anchorCnt}`);
-          if (interpCnt)   tag.push(`보간 ${interpCnt}`);
-          if (uncertainCnt) tag.push(`추정 ${uncertainCnt}`);
-          const note = tag.length ? ` (${tag.join('·')})` : '';
-          log(`  키워드 "${kw}" — API ${rawCount}건 → 기간 통과 ${items.length}건${note}`);
+          if (anchorCnt) tag.push(`정확 ${anchorCnt}`);
+          if (interpCnt) tag.push(`보간 ${interpCnt}`);
+          if (noInfoCnt) tag.push(`날짜불명 ${noInfoCnt}건 제외`);
+          const note = tag.length ? ` [${tag.join(' · ')}]` : '';
+          log(`  키워드 "${kw}" — API ${rawCount}건 → 검증 통과 ${items.length}건${note}`);
         }
 
         // 원본 응답 자체가 0이면 — Naver에 해당 키워드 결과 없음. 다음 키워드.
@@ -997,15 +997,13 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
           if (dateStr < dateFrom) { hitOldDate = true; skipRange++; continue; }
           if (dateStr > dateTo)   { skipRange++; continue; }
 
-          const tag = item._dateInterpolated ? ' [날짜보간]'
-                    : item._dateUncertain    ? ' [날짜추정]'
-                    : '';
+          const tag = item._dateInterpolated ? ' [날짜보간]' : '';
 
           posts.push({
             title:  cleanHtml(item.title||''),
             url:    item.link||'',
             date:   dateStr,
-            dateUncertain: !!(item._dateUncertain || item._dateInterpolated),
+            dateUncertain: !!item._dateInterpolated,
             views:  '0',
             source: `네이버카페(${cafeName})`,
             game:   gameName,
@@ -1036,7 +1034,6 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
   }
 
   // ── 2차 날짜 검증 — 모든 항목 strict dateRange 재확인
-  // (보간/추정 항목도 동일 기준 적용 — 서버에서 이미 컷됐지만 출력 직전 한 번 더)
   const before = posts.length;
   const verified = posts.filter(p => {
     if (!p.date) return false;
@@ -1045,11 +1042,11 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
     return true;
   });
   const droppedByVerify = before - verified.length;
-  const uncertainCount = verified.filter(p => p.dateUncertain).length;
+  const interpCount = verified.filter(p => p.dateUncertain).length;
   if (droppedByVerify > 0) {
-    log(`  [2차 날짜 검증] ${before}건 → ${verified.length}건 (${droppedByVerify}건 기간 불일치 제외${uncertainCount?` · 보간/추정 ${uncertainCount}건 포함`:''})`, 'warn');
+    log(`  [2차 날짜 검증] ${before}건 → ${verified.length}건 (${droppedByVerify}건 기간 불일치 제외${interpCount?` · 보간 ${interpCount}건 포함`:''})`, 'warn');
   } else if (before > 0) {
-    log(`  [2차 날짜 검증] 모든 ${before}건 통과${uncertainCount?` (보간/추정 ${uncertainCount}건 포함)`:''} ✓`);
+    log(`  [2차 날짜 검증] 모든 ${before}건 통과${interpCount?` (보간 ${interpCount}건 포함)`:''} ✓`);
   }
 
   const statusEl = document.getElementById('naverStatus_' + statusKey);

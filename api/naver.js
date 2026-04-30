@@ -15,7 +15,6 @@ function tsToDate(ts) { return new Date(ts).toISOString().slice(0, 10); }
 function pad2(n) { return String(n).padStart(2, '0'); }
 
 function annotateDates(items) {
-  const today = new Date().toISOString().slice(0, 10);
   const anchors = []; // [{idx, ts}]
 
   // 1. anchor 수집: postdate 유효한 항목
@@ -27,19 +26,19 @@ function annotateDates(items) {
     }
   });
 
-  // 2. 누락 항목에 추정 날짜 부여
+  // 2. 누락 항목 처리 — anchor 있을 때만 보간으로 날짜 부여
+  //    anchor 없으면 _noDateInfo 마킹 후 strict 정책상 제외
   items.forEach((item, idx) => {
     const pd = String(item.postdate || '').replace(/\D/g, '');
-    if (pd.length === 8 && pd !== '00000000') return; // already has
+    if (pd.length === 8 && pd !== '00000000') return;
 
     if (anchors.length === 0) {
-      // anchor 없음 — sort=date 신뢰, today() 추정
-      item._date = today;
-      item._dateUncertain = true;
+      // anchor 없음 — 검증 불가, 제외 표시
+      item._noDateInfo = true;
       return;
     }
 
-    // 인접 anchor 찾기
+    // 인접 anchor 선형 보간
     let prev = null, next = null;
     for (const a of anchors) {
       if (a.idx <= idx) prev = a;
@@ -48,7 +47,6 @@ function annotateDates(items) {
 
     let ts;
     if (prev && next && prev !== next) {
-      // 선형 보간
       const span  = next.idx - prev.idx;
       const offset = idx - prev.idx;
       ts = prev.ts + (next.ts - prev.ts) * (offset / span);
@@ -57,7 +55,8 @@ function annotateDates(items) {
     } else if (next) {
       ts = next.ts;
     } else {
-      ts = dateToTs(today);
+      item._noDateInfo = true;
+      return;
     }
     item._date = tsToDate(ts);
     item._dateInterpolated = true;
@@ -92,7 +91,7 @@ export default async function handler(req, res) {
     const data = await r.json();
 
     const rawCount = Array.isArray(data.items) ? data.items.length : 0;
-    let anchorCount = 0, interpolatedCount = 0, uncertainCount = 0;
+    let anchorCount = 0, interpolatedCount = 0, noInfoCount = 0;
 
     if (data.items) {
       annotateDates(data.items);
@@ -102,12 +101,14 @@ export default async function handler(req, res) {
         const pd = String(item.postdate || '').replace(/\D/g, '');
         if (pd.length === 8 && pd !== '00000000') anchorCount++;
         else if (item._dateInterpolated) interpolatedCount++;
-        else if (item._dateUncertain) uncertainCount++;
+        else if (item._noDateInfo) noInfoCount++;
       });
 
-      // strict dateRange 필터 — 모든 항목 적용 (해석/보간된 날짜 기준)
+      // strict dateRange 필터 — 검증 가능한 항목만 (anchor 또는 보간)
+      // _noDateInfo 항목은 검증 불가 → 제외
       const now = new Date().toISOString().slice(0, 10);
       data.items = data.items.filter(item => {
+        if (item._noDateInfo) return false;
         const pd = String(item.postdate || '').replace(/\D/g, '');
         let d;
         if (pd.length === 8 && pd !== '00000000') {
@@ -126,7 +127,7 @@ export default async function handler(req, res) {
     data._rawCount = rawCount;
     data._anchors = anchorCount;
     data._interpolated = interpolatedCount;
-    data._uncertain = uncertainCount;
+    data._noInfo = noInfoCount;
 
     res.status(r.status).json(data);
   } catch (e) {
