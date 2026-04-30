@@ -965,13 +965,17 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
         const items = data.items || [];
         const rawCount = (typeof data._rawCount === 'number') ? data._rawCount : items.length;
         const filteredOutByServer = rawCount - items.length;
-        const uncertainCount = data._uncertain || 0;
+        const anchorCnt   = data._anchors || 0;
+        const interpCnt   = data._interpolated || 0;
+        const uncertainCnt = data._uncertain || 0;
 
         if (start === 1) {
-          const note = uncertainCount
-            ? ` · 추정 ${uncertainCount}건`
-            : '';
-          log(`  키워드 "${kw}" — API 원본 ${rawCount}건, 통과 ${items.length}건${note}`);
+          const tag = [];
+          if (anchorCnt)   tag.push(`정확 ${anchorCnt}`);
+          if (interpCnt)   tag.push(`보간 ${interpCnt}`);
+          if (uncertainCnt) tag.push(`추정 ${uncertainCnt}`);
+          const note = tag.length ? ` (${tag.join('·')})` : '';
+          log(`  키워드 "${kw}" — API ${rawCount}건 → 기간 통과 ${items.length}건${note}`);
         }
 
         // 원본 응답 자체가 0이면 — Naver에 해당 키워드 결과 없음. 다음 키워드.
@@ -984,28 +988,28 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
           if (seen.has(item.link)) continue;
           seen.add(item.link);
 
-          // postdate가 없으면 서버 보강에서 채워준 _date 사용
+          // 서버에서 _date(보간/추정) 또는 postdate(정확) 부여됨
           const dateStr = DATE.parse(item.postdate) || DATE.parse(item._date);
           if (!dateStr) { skipNoDate++; continue; }
           if (!DATE.isReasonable(dateStr)) { skipUnreasonable++; continue; }
 
-          const uncertain = !!item._dateUncertain;
+          // 서버는 이미 dateRange로 컷한 상태. 클라는 추가 안전장치.
+          if (dateStr < dateFrom) { hitOldDate = true; skipRange++; continue; }
+          if (dateStr > dateTo)   { skipRange++; continue; }
 
-          // 수집 기간 범위 확인 (추정 항목은 sort=date 신뢰하여 통과)
-          if (!uncertain) {
-            if (dateStr < dateFrom) { hitOldDate = true; skipRange++; continue; }
-            if (dateStr > dateTo)   { skipRange++; continue; }
-          }
+          const tag = item._dateInterpolated ? ' [날짜보간]'
+                    : item._dateUncertain    ? ' [날짜추정]'
+                    : '';
 
           posts.push({
             title:  cleanHtml(item.title||''),
             url:    item.link||'',
             date:   dateStr,
-            dateUncertain: uncertain,
+            dateUncertain: !!(item._dateUncertain || item._dateInterpolated),
             views:  '0',
             source: `네이버카페(${cafeName})`,
             game:   gameName,
-            body:   cleanHtml(item.description||'') + (uncertain ? ' [날짜추정]' : ''),
+            body:   cleanHtml(item.description||'') + tag,
             images: [],
           });
         }
@@ -1031,22 +1035,21 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
     await sleep(150);
   }
 
-  // ── 2차 날짜 검증 — 수집된 모든 게시물의 날짜가 [dateFrom, dateTo] 범위 내인지 재확인
-  // 단 dateUncertain=true 항목은 sort=date 신뢰로 통과 (Naver API 한계 우회)
+  // ── 2차 날짜 검증 — 모든 항목 strict dateRange 재확인
+  // (보간/추정 항목도 동일 기준 적용 — 서버에서 이미 컷됐지만 출력 직전 한 번 더)
   const before = posts.length;
   const verified = posts.filter(p => {
     if (!p.date) return false;
     if (!DATE.isReasonable(p.date)) return false;
-    if (p.dateUncertain) return true; // 추정 항목 통과
     if (p.date < dateFrom || p.date > dateTo) return false;
     return true;
   });
   const droppedByVerify = before - verified.length;
   const uncertainCount = verified.filter(p => p.dateUncertain).length;
   if (droppedByVerify > 0) {
-    log(`  [2차 날짜 검증] ${before}건 → ${verified.length}건 (${droppedByVerify}건 기간 불일치 제외${uncertainCount?` · 추정 ${uncertainCount}건 포함`:''})`, 'warn');
+    log(`  [2차 날짜 검증] ${before}건 → ${verified.length}건 (${droppedByVerify}건 기간 불일치 제외${uncertainCount?` · 보간/추정 ${uncertainCount}건 포함`:''})`, 'warn');
   } else if (before > 0) {
-    log(`  [2차 날짜 검증] 모든 ${before}건 통과${uncertainCount?` (추정 ${uncertainCount}건 포함)`:''} ✓`);
+    log(`  [2차 날짜 검증] 모든 ${before}건 통과${uncertainCount?` (보간/추정 ${uncertainCount}건 포함)`:''} ✓`);
   }
 
   const statusEl = document.getElementById('naverStatus_' + statusKey);
