@@ -989,18 +989,23 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
           if (!dateStr) { skipNoDate++; continue; }
           if (!DATE.isReasonable(dateStr)) { skipUnreasonable++; continue; }
 
-          // 수집 기간 범위 확인
-          if (dateStr < dateFrom) { hitOldDate = true; skipRange++; continue; }
-          if (dateStr > dateTo)   { skipRange++; continue; }
+          const uncertain = !!item._dateUncertain;
+
+          // 수집 기간 범위 확인 (추정 항목은 sort=date 신뢰하여 통과)
+          if (!uncertain) {
+            if (dateStr < dateFrom) { hitOldDate = true; skipRange++; continue; }
+            if (dateStr > dateTo)   { skipRange++; continue; }
+          }
 
           posts.push({
             title:  cleanHtml(item.title||''),
             url:    item.link||'',
             date:   dateStr,
+            dateUncertain: uncertain,
             views:  '0',
             source: `네이버카페(${cafeName})`,
             game:   gameName,
-            body:   cleanHtml(item.description||''),
+            body:   cleanHtml(item.description||'') + (uncertain ? ' [날짜추정]' : ''),
             images: [],
           });
         }
@@ -1027,19 +1032,21 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
   }
 
   // ── 2차 날짜 검증 — 수집된 모든 게시물의 날짜가 [dateFrom, dateTo] 범위 내인지 재확인
-  // (서버 필터/클라이언트 필터를 통과했더라도, 출력 직전 한 번 더 보장)
+  // 단 dateUncertain=true 항목은 sort=date 신뢰로 통과 (Naver API 한계 우회)
   const before = posts.length;
   const verified = posts.filter(p => {
     if (!p.date) return false;
     if (!DATE.isReasonable(p.date)) return false;
+    if (p.dateUncertain) return true; // 추정 항목 통과
     if (p.date < dateFrom || p.date > dateTo) return false;
     return true;
   });
   const droppedByVerify = before - verified.length;
+  const uncertainCount = verified.filter(p => p.dateUncertain).length;
   if (droppedByVerify > 0) {
-    log(`  [2차 날짜 검증] ${before}건 → ${verified.length}건 (${droppedByVerify}건 기간 불일치 제외)`, 'warn');
+    log(`  [2차 날짜 검증] ${before}건 → ${verified.length}건 (${droppedByVerify}건 기간 불일치 제외${uncertainCount?` · 추정 ${uncertainCount}건 포함`:''})`, 'warn');
   } else if (before > 0) {
-    log(`  [2차 날짜 검증] 모든 ${before}건 기간 일치 ✓`);
+    log(`  [2차 날짜 검증] 모든 ${before}건 통과${uncertainCount?` (추정 ${uncertainCount}건 포함)`:''} ✓`);
   }
 
   const statusEl = document.getElementById('naverStatus_' + statusKey);

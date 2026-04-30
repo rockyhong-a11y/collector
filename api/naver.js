@@ -101,21 +101,31 @@ export default async function handler(req, res) {
     let enrichInfo = { candidatesCount: 0, attempted: 0 };
 
     if (data.items) {
-      // 보강: postdate 누락 항목에 _date 설정
+      // 보강: postdate 누락 항목에 _date 설정 (description regex만 효과적,
+      // 카페 페이지는 SPA 셸 반환이라 fetch로는 날짜 추출 안됨)
       enrichInfo = await enrichBatch(data.items);
 
       const now = new Date().toISOString().slice(0, 10);
+      const fallbackDate = dateTo || now;
+
       data.items = data.items.filter(item => {
         const pd = String(item.postdate || '').replace(/\D/g, '');
-        let d;
+        let d, uncertain = false;
         if (pd.length === 8 && pd !== '00000000') {
           d = `${pd.slice(0, 4)}-${pd.slice(4, 6)}-${pd.slice(6, 8)}`;
         } else if (item._date) {
           d = item._date;
         } else {
-          return false; // 보강 실패 항목 제외 (strict)
+          // 날짜 미확보 — sort=date 응답이므로 최근글일 가능성 높음
+          // dateTo(또는 today)로 추정하고 _dateUncertain 플래그
+          d = fallbackDate;
+          uncertain = true;
+          item._date = d;
+          item._dateUncertain = true;
         }
         if (d < '2010-01-01' || d > now) return false;
+        // 추정 항목은 범위 검사 통과 (sort=date 신뢰)
+        if (uncertain) return true;
         if (dateFrom && d < dateFrom) return false;
         if (dateTo   && d > dateTo)   return false;
         return true;
