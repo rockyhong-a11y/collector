@@ -965,9 +965,13 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
         const items = data.items || [];
         const rawCount = (typeof data._rawCount === 'number') ? data._rawCount : items.length;
         const filteredOutByServer = rawCount - items.length;
+        const enrich = data._enrich || {};
 
         if (start === 1) {
-          log(`  키워드 "${kw}" — API 원본 ${rawCount}건, 서버필터 통과 ${items.length}건`);
+          const enrichNote = enrich.candidatesCount
+            ? ` · 날짜보강 시도 ${enrich.attempted}/${enrich.candidatesCount}`
+            : '';
+          log(`  키워드 "${kw}" — API 원본 ${rawCount}건, 서버필터 통과 ${items.length}건${enrichNote}`);
         }
 
         // 원본 응답 자체가 0이면 — Naver에 해당 키워드 결과 없음. 다음 키워드.
@@ -980,8 +984,8 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
           if (seen.has(item.link)) continue;
           seen.add(item.link);
 
-          // [엄격] postdate 없으면 제외 — 몇 년 전 글 유입 차단
-          const dateStr = DATE.parse(item.postdate);
+          // postdate가 없으면 서버 보강에서 채워준 _date 사용
+          const dateStr = DATE.parse(item.postdate) || DATE.parse(item._date);
           if (!dateStr) { skipNoDate++; continue; }
           if (!DATE.isReasonable(dateStr)) { skipUnreasonable++; continue; }
 
