@@ -905,15 +905,13 @@ const NAVER_PAGE_SIZE  = 100;
 const NAVER_MAX_START  = 301;
 
 async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, log, statusKey, customKeywords=[]) {
-  log(`네이버카페 [${cafeName}] API 수집 시작 (cafeid:${cafeId})`, 'info');
+  log(`네이버카페 [${cafeName}] 수집 시작 (cafeid:${cafeId}) — 카페 전체글 모드`, 'info');
 
-  // 사전 probe 제거 — cold start나 일시적 지연으로 통째로 abort되는 것 방지
-  // 실제 키워드 호출 단계에서 개별적으로 오류 처리
-
-  // 키워드 미입력 시 — 빈 키워드 단일 호출 (cafe:CAFEID 단독 query → 카페 전체글)
-  const keywords = customKeywords.length > 0 ? customKeywords : [''];
-  if (customKeywords.length === 0) {
-    log(`  키워드 미입력 — 카페 전체글 수집 (기간 필터 적용)`);
+  // 네이버 카페는 키워드 필터링 없이 항상 카페 전체글 수집 (기간 필터만 적용)
+  // 다른 사이트(DC/공식)와 달리 keyword를 무시함 — 사용자 의도: "수집 기간 내 모든 게시물"
+  const keywords = [''];
+  if (customKeywords.length > 0) {
+    log(`  (입력 키워드 ${customKeywords.length}개는 무시 — 네이버 카페는 전체글 모드 고정)`);
   }
   const posts     = [];
   const seen      = new Set();
