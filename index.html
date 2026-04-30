@@ -248,7 +248,7 @@ tbody tr:hover td{background:#1c2128}
   <div class="card">
     <div class="card-title">🔍 검색어 (선택)</div>
     <div class="field">
-      <label class="field-label">키워드 — 쉼표 또는 공백으로 구분 &nbsp;·&nbsp; 비워두면 기간 내 버그/이슈·의견/평가 항목만 수집 &nbsp;·&nbsp; 입력 시 제목·본문·댓글에서 매칭</label>
+      <label class="field-label">키워드 — 쉼표/공백 구분 &nbsp;·&nbsp; <b>DC·공식커뮤</b>: 입력 시 제목·본문·댓글 검색 / 미입력 시 버그·의견 strict &nbsp;·&nbsp; <b>네이버 카페</b>: 키워드 무시 (항상 전체글)</label>
       <input type="text" id="keywords" placeholder="예: 버그, 크래시, 결제 오류, 업데이트">
     </div>
   </div>
@@ -499,16 +499,17 @@ const GAME_MAP = {
 const SEV_CRITICAL = ['결제','과금','충전','접속 불가','로그인 불가','크래시','crash','초기화','데이터 유실','데이터 사라','critical','치명'];
 const SEV_HIGH     = ['오류','error','버그','bug','강종','강제종료','먹통','팅김','튕김','프리징','안됨','불가'];
 
-function classifyCategory(title, body, activeFilters) {
+function classifyCategory(title, body, activeFilters, strict = false) {
   const t = (title + ' ' + body).toLowerCase();
-  // 매칭 안되면 기본값 '의견/평가'로 처리 (수집된 글을 폐기하지 않음)
-  // 사용자가 '버그/이슈'만 체크하면 매칭 안된 글은 의견/평가로 분류돼 자연스럽게 빠짐
-  let cat = '의견/평가';
+  // strict=true: BUG_KW/OPINION_KW 매칭 필수 → 미매칭 글 null로 제외
+  // strict=false: 매칭 안되면 기본값 '의견/평가'로 처리 (수집 글 보존)
+  let cat = strict ? null : '의견/평가';
   if (BUG_KW.some(k => fuzzyIncludes(t, k))) {
     cat = '버그/이슈';
   } else if (OPINION_KW.some(k => fuzzyIncludes(t, k))) {
     cat = '의견/평가';
   }
+  if (cat === null) return null;
   if (activeFilters.has(cat)) return cat;
   return null;
 }
@@ -1261,15 +1262,23 @@ document.getElementById('btnStart').addEventListener('click', async () => {
     //   공식 커뮤니티 — /board/all 수집 후 본문+댓글 fetch 매칭
 
     // ── 카테고리 분류 ───────────────────────────────────────
-    // 매칭 안된 글은 '의견/평가' 기본값으로 분류 — 수집된 글 보존
-    // 사용자가 카테고리 체크박스로 어느 쪽만 보일지 선택
-    log(`=== 분류 중 (총 ${allPosts.length}건) ===`, 'info');
+    // 사이트별 strict 모드 결정:
+    //   - 네이버 카페: 항상 strict=false (전체글 모드, 카테고리 매칭 안되면 의견/평가)
+    //   - DC/공식 + 키워드 미입력: strict=true (BUG/OPINION 매칭 글만)
+    //   - DC/공식 + 키워드 입력: strict=false (이미 사이트가 사전 필터함)
+    const hasUserKw = userKeywords.length > 0;
+    log(`=== 분류 중 (총 ${allPosts.length}건${hasUserKw?'':' · DC·공식 strict'}) ===`, 'info');
     setProgress(90, '분류 중...');
     const filtered = [];
-    let droppedByCatFilter = 0;
+    let droppedStrict = 0, droppedFilter = 0;
     for (const p of allPosts) {
-      const cat = classifyCategory(p.title, p.body, cats);
-      if (cat === null) { droppedByCatFilter++; continue; }
+      const isNaver = (p.source || '').startsWith('네이버카페');
+      const strict = !isNaver && !hasUserKw;
+      const cat = classifyCategory(p.title, p.body, cats, strict);
+      if (cat === null) {
+        if (strict) droppedStrict++; else droppedFilter++;
+        continue;
+      }
       p.category        = cat;
       p.game_classified = p.game || classifyGame(p.title, p.body, p.hint||p.source||'');
       p.severity        = classifySeverity(p.title, p.body);
@@ -1277,7 +1286,8 @@ document.getElementById('btnStart').addEventListener('click', async () => {
       p.frequency       = '미상';
       filtered.push(p);
     }
-    if (droppedByCatFilter) log(`  → 카테고리 필터 미선택으로 ${droppedByCatFilter}건 제외`);
+    if (droppedStrict)  log(`  → strict 미매칭 ${droppedStrict}건 제외 (DC·공식, BUG/OPINION 키워드 없음)`);
+    if (droppedFilter)  log(`  → 카테고리 체크박스 미선택으로 ${droppedFilter}건 제외`);
     log(`분류 완료: ${filtered.length}건`);
     setProgress(100, `✅ 완료 — ${filtered.length}건 수집`);
 
