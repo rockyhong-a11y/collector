@@ -499,18 +499,16 @@ const GAME_MAP = {
 const SEV_CRITICAL = ['결제','과금','충전','접속 불가','로그인 불가','크래시','crash','초기화','데이터 유실','데이터 사라','critical','치명'];
 const SEV_HIGH     = ['오류','error','버그','bug','강종','강제종료','먹통','팅김','튕김','프리징','안됨','불가'];
 
-function classifyCategory(title, body, activeFilters, strict=false) {
+function classifyCategory(title, body, activeFilters) {
   const t = (title + ' ' + body).toLowerCase();
-  // strict=true (검색어 미입력): BUG_KW 또는 OPINION_KW 매칭 필수 → 미매칭 글 제외
-  // strict=false (검색어 입력): 사이트별 사전 필터로 이미 매칭된 글이므로
-  //                            카테고리 미분류는 의견/평가 기본값으로 통과
-  let cat = strict ? null : '의견/평가';
+  // 매칭 안되면 기본값 '의견/평가'로 처리 (수집된 글을 폐기하지 않음)
+  // 사용자가 '버그/이슈'만 체크하면 매칭 안된 글은 의견/평가로 분류돼 자연스럽게 빠짐
+  let cat = '의견/평가';
   if (BUG_KW.some(k => fuzzyIncludes(t, k))) {
     cat = '버그/이슈';
   } else if (OPINION_KW.some(k => fuzzyIncludes(t, k))) {
     cat = '의견/평가';
   }
-  if (cat === null) return null;
   if (activeFilters.has(cat)) return cat;
   return null;
 }
@@ -1001,8 +999,8 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
           });
         }
 
-        if (skipNoDate || skipUnreasonable || skipRange || filteredOutByServer) {
-          log(`  → [검증] 서버제외 ${filteredOutByServer}건 · 날짜불명 ${skipNoDate}건 · 비정상 ${skipUnreasonable}건 · 범위외 ${skipRange}건`, 'warn');
+        if (skipNoDate || skipUnreasonable || skipRange) {
+          log(`  → [검증] 날짜불명 ${skipNoDate}건 · 비정상 ${skipUnreasonable}건 · 범위외 ${skipRange}건 제외`, 'warn');
         }
 
         // 종료 조건: dateFrom 이전 발견 OR API 원본이 페이지 크기 미만
@@ -1268,16 +1266,15 @@ document.getElementById('btnStart').addEventListener('click', async () => {
     //   공식 커뮤니티 — /board/all 수집 후 본문+댓글 fetch 매칭
 
     // ── 카테고리 분류 ───────────────────────────────────────
-    // 검색어 미입력 → strict 모드 (BUG/OPINION 미매칭 글은 제외)
-    // 검색어 입력 → permissive 모드 (사이트가 이미 키워드로 사전 필터함)
-    const strictMode = userKeywords.length === 0;
-    log(`=== 분류 중 (총 ${allPosts.length}건${strictMode?' · strict':' · permissive'}) ===`, 'info');
+    // 매칭 안된 글은 '의견/평가' 기본값으로 분류 — 수집된 글 보존
+    // 사용자가 카테고리 체크박스로 어느 쪽만 보일지 선택
+    log(`=== 분류 중 (총 ${allPosts.length}건) ===`, 'info');
     setProgress(90, '분류 중...');
     const filtered = [];
-    let droppedNoCategory = 0;
+    let droppedByCatFilter = 0;
     for (const p of allPosts) {
-      const cat = classifyCategory(p.title, p.body, cats, strictMode);
-      if (cat === null) { droppedNoCategory++; continue; }
+      const cat = classifyCategory(p.title, p.body, cats);
+      if (cat === null) { droppedByCatFilter++; continue; }
       p.category        = cat;
       p.game_classified = p.game || classifyGame(p.title, p.body, p.hint||p.source||'');
       p.severity        = classifySeverity(p.title, p.body);
@@ -1285,7 +1282,7 @@ document.getElementById('btnStart').addEventListener('click', async () => {
       p.frequency       = '미상';
       filtered.push(p);
     }
-    if (droppedNoCategory) log(`  → 카테고리 미매칭 ${droppedNoCategory}건 제외 (strict 필터)`);
+    if (droppedByCatFilter) log(`  → 카테고리 필터 미선택으로 ${droppedByCatFilter}건 제외`);
     log(`분류 완료: ${filtered.length}건`);
     setProgress(100, `✅ 완료 — ${filtered.length}건 수집`);
 
