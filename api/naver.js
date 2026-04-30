@@ -1,66 +1,156 @@
-// Naver Search API 래퍼 + 위치 기반 날짜 보간
+// Naver Cafe 검색 — search.naver.com (tab.cafe.all) 스크래핑 방식
 //
-// 컴투스 야구 카페들은 cafearticle.json 응답에서 postdate가 거의 누락되지만,
-// 같은 응답 내 일부 항목엔 valid postdate가 있다. sort=date 정렬을 가정하면,
-// 응답 내 위치(idx)와 anchor 항목의 (idx, date)를 이용해 선형 보간 가능.
+// 사연: openapi.naver.com/cafearticle.json은 컴투스 카페들의 postdate를 거의
+//       반환하지 않아 정확한 기간 필터링 불가. 반면 search.naver.com의
+//       카페 검색 페이지는 사용자용으로 HTML에 게시일자를 직접 렌더링하고
+//       nso=p:fromYYYYMMDDtoYYYYMMDD 파라미터로 기간 필터까지 지원함.
 //
-// 정책:
-//   1) postdate 유효 → 그대로 사용
-//   2) postdate 누락 + 같은 응답에 anchor 있음 → 위치 기반 선형 보간
-//   3) postdate 누락 + anchor 없음 → today() 추정, _dateUncertain=true
-//   4) 최종 dateRange 필터를 모든 항목에 적용 (해석된 날짜 기준)
+// 동작: keyword + cafe:CAFEID + 기간 nso → search.naver.com 카페 탭 스크래핑
+//       각 게시물의 link, 제목, 날짜(절대 또는 상대) 추출 → 절대 날짜로 변환
+//       모든 항목에 verified date가 부여되므로 사용자 기간과 1:1 동기화
 
-function dateToTs(d) { return new Date(d + 'T00:00:00Z').getTime(); }
-function tsToDate(ts) { return new Date(ts).toISOString().slice(0, 10); }
+const SEARCH_URL = 'https://search.naver.com/search.naver';
+const PER_PAGE   = 10;
+const MAX_PAGES  = 5; // request당 최대 페이지 (50개 결과까지)
+
 function pad2(n) { return String(n).padStart(2, '0'); }
 
-function annotateDates(items) {
-  const anchors = []; // [{idx, ts}]
+function todayKR() {
+  // KST 기준 오늘 (UTC+9)
+  const now = new Date();
+  const kst = new Date(now.getTime() + (9 * 60 - now.getTimezoneOffset()) * 60000);
+  return kst.toISOString().slice(0, 10);
+}
 
-  // 1. anchor 수집: postdate 유효한 항목
-  items.forEach((item, idx) => {
-    const pd = String(item.postdate || '').replace(/\D/g, '');
-    if (pd.length === 8 && pd !== '00000000') {
-      const d = `${pd.slice(0, 4)}-${pd.slice(4, 6)}-${pd.slice(6, 8)}`;
-      anchors.push({ idx, ts: dateToTs(d) });
+function shiftDate(baseISO, days) {
+  const d = new Date(baseISO + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+// 상대시간/절대날짜 텍스트를 YYYY-MM-DD로 변환
+function parseDateText(text, today) {
+  if (!text) return null;
+  text = text.trim();
+  if (text === '오늘') return today;
+  if (text === '어제') return shiftDate(today, -1);
+  if (text === '그저께') return shiftDate(today, -2);
+  let m = text.match(/(\d+)\s*시간\s*전/);
+  if (m) {
+    // N시간 전 — 시각 기준 today 또는 어제일 수 있으나 보통 today로 충분
+    const hrs = parseInt(m[1]);
+    const now = new Date();
+    now.setHours(now.getHours() - hrs);
+    return now.toISOString().slice(0, 10);
+  }
+  m = text.match(/(\d+)\s*분\s*전/);
+  if (m) return today;
+  m = text.match(/(\d+)\s*초\s*전/);
+  if (m) return today;
+  m = text.match(/(\d+)\s*일\s*전/);
+  if (m) return shiftDate(today, -parseInt(m[1]));
+  m = text.match(/(20\d{2})\.(\d{1,2})\.(\d{1,2})/);
+  if (m) return `${m[1]}-${pad2(m[2])}-${pad2(m[3])}`;
+  return null;
+}
+
+// HTML에서 카페 게시물 카드 추출 — link, title, date
+function extractCards(html, today) {
+  const items = [];
+  // 카드 단위 분할: 각 카페 article 링크부터 다음 article 링크 직전까지
+  const linkRe = /cafe\.naver\.com\/(\w+)\/(\d+)/g;
+  const positions = [];
+  let m;
+  while ((m = linkRe.exec(html)) !== null) {
+    positions.push({ idx: m.index, cafe: m[1], aid: m[2] });
+  }
+
+  // 각 link 위치에서 forward 3000자 안의 날짜 텍스트 찾기
+  const datePatterns = /(\d+\s*(?:시간|분|일|초)\s*전|어제|그저께|오늘|20\d{2}\.\d{1,2}\.\d{1,2})/;
+  const seen = new Set();
+
+  for (const pos of positions) {
+    const key = `${pos.cafe}/${pos.aid}`;
+    if (seen.has(key)) continue;
+
+    // forward window
+    const window = html.slice(pos.idx, pos.idx + 3000);
+    const dm = window.match(datePatterns);
+    if (!dm) continue;
+    const date = parseDateText(dm[1], today);
+    if (!date) continue;
+
+    // backward 800자에서 a 태그 텍스트 추출 시도 → 제목
+    const back = html.slice(Math.max(0, pos.idx - 800), pos.idx);
+    let title = '';
+    const tm = back.match(/<a\s[^>]*>([^<]{3,200})<\/a>(?![\s\S]*?<a)/);
+    if (tm) title = tm[1].replace(/<[^>]+>/g, '').trim();
+
+    // description / snippet — 카드 내 본문 텍스트
+    const winText = window.replace(/<script[\s\S]*?<\/script>/g, '')
+                          .replace(/<[^>]+>/g, ' ')
+                          .replace(/\s+/g, ' ').trim();
+    const description = winText.slice(0, 200);
+
+    seen.add(key);
+    items.push({
+      title: title || winText.slice(0, 80),
+      link: `https://cafe.naver.com/${pos.cafe}/${pos.aid}`,
+      description,
+      cafename: pos.cafe,
+      _date: date,        // YYYY-MM-DD 검증된 날짜
+      postdate: date.replace(/-/g, ''), // 호환성을 위한 YYYYMMDD 형식
+    });
+  }
+  return items;
+}
+
+async function searchCafeViaWeb(keyword, cafeId, dateFrom, dateTo, log = () => {}) {
+  const today = todayKR();
+  const all = [];
+  const seen = new Set();
+
+  const query = cafeId ? `cafe:${cafeId} ${keyword}` : keyword;
+  const fromYMD = (dateFrom || '').replace(/-/g, '');
+  const toYMD   = (dateTo   || '').replace(/-/g, '');
+  const nso = (fromYMD && toYMD)
+    ? `p:from${fromYMD}to${toYMD},so:dd`
+    : `so:dd`;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const start = page * PER_PAGE + 1;
+    const url = `${SEARCH_URL}?ssc=tab.cafe.all&sm=tab_jum`
+              + `&start=${start}`
+              + `&query=${encodeURIComponent(query)}`
+              + `&nso=${encodeURIComponent(nso)}`;
+
+    let html;
+    try {
+      const r = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+          'Accept-Language': 'ko-KR,ko;q=0.9',
+        },
+      });
+      if (!r.ok) break;
+      html = await r.text();
+    } catch { break; }
+
+    const items = extractCards(html, today);
+    let added = 0;
+    for (const it of items) {
+      if (seen.has(it.link)) continue;
+      seen.add(it.link);
+      // 안전장치: 추출 날짜가 사용자 기간 내인지 재확인
+      if (dateFrom && it._date < dateFrom) continue;
+      if (dateTo   && it._date > dateTo)   continue;
+      all.push(it);
+      added++;
     }
-  });
+    if (added === 0) break;
+  }
 
-  // 2. 누락 항목 처리 — anchor 있을 때만 보간으로 날짜 부여
-  //    anchor 없으면 _noDateInfo 마킹 후 strict 정책상 제외
-  items.forEach((item, idx) => {
-    const pd = String(item.postdate || '').replace(/\D/g, '');
-    if (pd.length === 8 && pd !== '00000000') return;
-
-    if (anchors.length === 0) {
-      // anchor 없음 — 검증 불가, 제외 표시
-      item._noDateInfo = true;
-      return;
-    }
-
-    // 인접 anchor 선형 보간
-    let prev = null, next = null;
-    for (const a of anchors) {
-      if (a.idx <= idx) prev = a;
-      if (a.idx >= idx && next === null) next = a;
-    }
-
-    let ts;
-    if (prev && next && prev !== next) {
-      const span  = next.idx - prev.idx;
-      const offset = idx - prev.idx;
-      ts = prev.ts + (next.ts - prev.ts) * (offset / span);
-    } else if (prev) {
-      ts = prev.ts;
-    } else if (next) {
-      ts = next.ts;
-    } else {
-      item._noDateInfo = true;
-      return;
-    }
-    item._date = tsToDate(ts);
-    item._dateInterpolated = true;
-  });
+  return all;
 }
 
 export default async function handler(req, res) {
@@ -69,67 +159,22 @@ export default async function handler(req, res) {
   const {
     keyword  = '',
     cafeId   = '',
-    display  = '100',
-    start    = '1',
     dateFrom = '',
     dateTo   = '',
   } = req.query;
 
   if (!keyword) return res.status(400).json({ error: '키워드 없음' });
 
-  const query = cafeId ? `${keyword} cafe:${cafeId}` : keyword;
-  const url = `https://openapi.naver.com/v1/search/cafearticle.json`
-    + `?query=${encodeURIComponent(query)}&display=${display}&start=${start}&sort=date`;
-
   try {
-    const r = await fetch(url, {
-      headers: {
-        'X-Naver-Client-Id':     process.env.NAVER_CLIENT_ID,
-        'X-Naver-Client-Secret': process.env.NAVER_CLIENT_SECRET,
-      },
+    const items = await searchCafeViaWeb(keyword, cafeId, dateFrom, dateTo);
+    res.status(200).json({
+      items,
+      _rawCount: items.length,
+      _anchors: items.length,        // 모든 항목 검증됨
+      _interpolated: 0,
+      _noInfo: 0,
+      _source: 'search.naver.com',
     });
-    const data = await r.json();
-
-    const rawCount = Array.isArray(data.items) ? data.items.length : 0;
-    let anchorCount = 0, interpolatedCount = 0, noInfoCount = 0;
-
-    if (data.items) {
-      annotateDates(data.items);
-
-      // 통계 집계
-      data.items.forEach(item => {
-        const pd = String(item.postdate || '').replace(/\D/g, '');
-        if (pd.length === 8 && pd !== '00000000') anchorCount++;
-        else if (item._dateInterpolated) interpolatedCount++;
-        else if (item._noDateInfo) noInfoCount++;
-      });
-
-      // strict dateRange 필터 — 검증 가능한 항목만 (anchor 또는 보간)
-      // _noDateInfo 항목은 검증 불가 → 제외
-      const now = new Date().toISOString().slice(0, 10);
-      data.items = data.items.filter(item => {
-        if (item._noDateInfo) return false;
-        const pd = String(item.postdate || '').replace(/\D/g, '');
-        let d;
-        if (pd.length === 8 && pd !== '00000000') {
-          d = `${pd.slice(0, 4)}-${pd.slice(4, 6)}-${pd.slice(6, 8)}`;
-        } else if (item._date) {
-          d = item._date;
-        } else {
-          return false;
-        }
-        if (d < '2010-01-01' || d > now) return false;
-        if (dateFrom && d < dateFrom) return false;
-        if (dateTo   && d > dateTo)   return false;
-        return true;
-      });
-    }
-    data._rawCount = rawCount;
-    data._anchors = anchorCount;
-    data._interpolated = interpolatedCount;
-    data._noInfo = noInfoCount;
-
-    res.status(r.status).json(data);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

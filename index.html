@@ -964,18 +964,10 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
         }
         const items = data.items || [];
         const rawCount = (typeof data._rawCount === 'number') ? data._rawCount : items.length;
-        const filteredOutByServer = rawCount - items.length;
-        const anchorCnt   = data._anchors || 0;
-        const interpCnt   = data._interpolated || 0;
-        const noInfoCnt   = data._noInfo || 0;
+        const source = data._source || 'naver';
 
         if (start === 1) {
-          const tag = [];
-          if (anchorCnt) tag.push(`정확 ${anchorCnt}`);
-          if (interpCnt) tag.push(`보간 ${interpCnt}`);
-          if (noInfoCnt) tag.push(`날짜불명 ${noInfoCnt}건 제외`);
-          const note = tag.length ? ` [${tag.join(' · ')}]` : '';
-          log(`  키워드 "${kw}" — API ${rawCount}건 → 검증 통과 ${items.length}건${note}`);
+          log(`  키워드 "${kw}" [${source}] — 기간 내 ${items.length}건`);
         }
 
         // 원본 응답 자체가 0이면 — Naver에 해당 키워드 결과 없음. 다음 키워드.
@@ -988,26 +980,23 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
           if (seen.has(item.link)) continue;
           seen.add(item.link);
 
-          // 서버에서 _date(보간/추정) 또는 postdate(정확) 부여됨
-          const dateStr = DATE.parse(item.postdate) || DATE.parse(item._date);
+          // search.naver.com에서 검증된 정확한 날짜
+          const dateStr = DATE.parse(item._date) || DATE.parse(item.postdate);
           if (!dateStr) { skipNoDate++; continue; }
           if (!DATE.isReasonable(dateStr)) { skipUnreasonable++; continue; }
 
-          // 서버는 이미 dateRange로 컷한 상태. 클라는 추가 안전장치.
+          // 추가 안전장치 — 서버에서 이미 컷됐어야 함
           if (dateStr < dateFrom) { hitOldDate = true; skipRange++; continue; }
           if (dateStr > dateTo)   { skipRange++; continue; }
-
-          const tag = item._dateInterpolated ? ' [날짜보간]' : '';
 
           posts.push({
             title:  cleanHtml(item.title||''),
             url:    item.link||'',
             date:   dateStr,
-            dateUncertain: !!item._dateInterpolated,
             views:  '0',
             source: `네이버카페(${cafeName})`,
             game:   gameName,
-            body:   cleanHtml(item.description||'') + tag,
+            body:   cleanHtml(item.description||''),
             images: [],
           });
         }
@@ -1041,12 +1030,11 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
     if (p.date < dateFrom || p.date > dateTo) return false;
     return true;
   });
-  const droppedByVerify = before - verified.length;
-  const interpCount = verified.filter(p => p.dateUncertain).length;
-  if (droppedByVerify > 0) {
-    log(`  [2차 날짜 검증] ${before}건 → ${verified.length}건 (${droppedByVerify}건 기간 불일치 제외${interpCount?` · 보간 ${interpCount}건 포함`:''})`, 'warn');
+  const dropped = before - verified.length;
+  if (dropped > 0) {
+    log(`  [2차 날짜 검증] ${before}건 → ${verified.length}건 (${dropped}건 기간 불일치 제외)`, 'warn');
   } else if (before > 0) {
-    log(`  [2차 날짜 검증] 모든 ${before}건 통과${interpCount?` (보간 ${interpCount}건 포함)`:''} ✓`);
+    log(`  [2차 날짜 검증] 모든 ${before}건 기간 일치 ✓`);
   }
 
   const statusEl = document.getElementById('naverStatus_' + statusKey);
