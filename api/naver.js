@@ -132,7 +132,10 @@ async function searchCafeViaWeb(keyword, cafeId, dateFrom, dateTo, log = () => {
   const all = [];
   const seen = new Set();
 
-  const query = cafeId ? `cafe:${cafeId} ${keyword}` : keyword;
+  // keyword 비었으면 cafe:CAFEID 단독 검색 (카페 전체글 + 기간 필터)
+  const query = cafeId
+    ? (keyword ? `cafe:${cafeId} ${keyword}` : `cafe:${cafeId}`)
+    : keyword;
   const fromYMD = (dateFrom || '').replace(/-/g, '');
   const toYMD   = (dateTo   || '').replace(/-/g, '');
   const nso = (fromYMD && toYMD)
@@ -185,14 +188,15 @@ export default async function handler(req, res) {
     dateTo   = '',
   } = req.query;
 
-  if (!keyword) return res.status(400).json({ error: '키워드 없음' });
+  // keyword 비어 있어도 OK — cafeId만 있으면 카페 전체글을 기간 필터로 가져옴
+  if (!keyword && !cafeId) return res.status(400).json({ error: '키워드 또는 cafeId 필요' });
 
   try {
     const items = await searchCafeViaWeb(keyword, cafeId, dateFrom, dateTo);
     res.status(200).json({
       items,
       _rawCount: items.length,
-      _anchors: items.length,        // 모든 항목 검증됨
+      _anchors: items.length,
       _interpolated: 0,
       _noInfo: 0,
       _source: 'search.naver.com',

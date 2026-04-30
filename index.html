@@ -898,17 +898,11 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log, userKeywords=[]) {
 //  - cafeId: 수집 대상 카페 numeric ID (27851354 / 28683505)
 //  - customKeywords: 사용자 검색어 (없으면 기본 키워드 사용)
 // ═══════════════════════════════════════════════════════════════
-// Naver 검색 API는 query가 필수이므로, 키워드 미입력 시 BUG/OPINION 카테고리
-// 키워드를 순회 검색하여 다른 사이트와 동일한 기준으로 수집한다.
-// 즉, 검색어가 없을 때 "버그/이슈, 의견/평가 항목만" 가져와 strict 분류 필터를 통과시킴.
-const NAVER_CATEGORY_KW = [
-  // BUG/이슈 대표 키워드
-  '버그','오류','에러','크래시','튕김','먹통','안됨','로딩','강종','접속불가',
-  // 의견/평가 대표 키워드
-  '건의','개선','후기','평가','업데이트','패치','피드백','제안','추천',
-];
+// search.naver.com 카페 검색은 cafe:CAFEID 단독 query로 카페 전체글을 기간
+// 필터 기준으로 가져올 수 있다 (검증됨). 키워드 미입력 시 빈 키워드 한 번만
+// 호출 → 카페 전체 수집. 사용자가 키워드 입력하면 그 키워드들만 순회.
 const NAVER_PAGE_SIZE  = 100;
-const NAVER_MAX_START  = 301; // 최대 300건 (start 1·101·201)
+const NAVER_MAX_START  = 301;
 
 async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, log, statusKey, customKeywords=[]) {
   log(`네이버카페 [${cafeName}] API 수집 시작 (cafeid:${cafeId})`, 'info');
@@ -916,12 +910,10 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
   // 사전 probe 제거 — cold start나 일시적 지연으로 통째로 abort되는 것 방지
   // 실제 키워드 호출 단계에서 개별적으로 오류 처리
 
-  // 키워드 미입력 시 — BUG/OPINION 카테고리 키워드 순회로 다른 사이트 기준 매칭
-  const keywords  = customKeywords.length > 0
-    ? customKeywords
-    : NAVER_CATEGORY_KW;
+  // 키워드 미입력 시 — 빈 키워드 단일 호출 (cafe:CAFEID 단독 query → 카페 전체글)
+  const keywords = customKeywords.length > 0 ? customKeywords : [''];
   if (customKeywords.length === 0) {
-    log(`  키워드 미입력 — 카테고리 키워드 ${keywords.length}개 순회 수집 시작`);
+    log(`  키워드 미입력 — 카페 전체글 수집 (기간 필터 적용)`);
   }
   const posts     = [];
   const seen      = new Set();
@@ -965,7 +957,8 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
         const source = data._source || 'naver';
 
         if (start === 1) {
-          log(`  키워드 "${kw}" [${source}] — 기간 내 ${items.length}건`);
+          const kwLabel = kw ? `키워드 "${kw}"` : '카페 전체';
+          log(`  ${kwLabel} [${source}] — 기간 내 ${items.length}건`);
         }
 
         // 원본 응답 자체가 0이면 — Naver에 해당 키워드 결과 없음. 다음 키워드.
