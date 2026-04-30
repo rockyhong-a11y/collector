@@ -1168,8 +1168,9 @@ document.getElementById('btnStart').addEventListener('click', async () => {
   btnStart.innerHTML = '<span class="spin"></span><span>수집 중...</span>';
 
   // 시작 시 백엔드 도달 진단 — /cafe(별칭)와 /api/naver(직접) 두 경로 모두 ping
-  // 한쪽이라도 통과하면 그 경로를 우선 사용
+  // 두 경로 모두 실패할 때만 차단기 안내 메시지 표시
   setTimeout(async () => {
+    let okCount = 0;
     for (const apiPath of ['/cafe', '/api/naver']) {
       try {
         const ctrl = new AbortController();
@@ -1181,11 +1182,14 @@ document.getElementById('btnStart').addEventListener('click', async () => {
         clearTimeout(tid);
         const ms = Date.now() - t0;
         addLog(`[진단] ${apiPath} 응답 HTTP ${r.status} (${ms}ms) — 도달 OK`, 'info');
+        if (r.ok) okCount++;
       } catch(e) {
         addLog(`[진단] ${apiPath} 도달 실패 [${e.name||'Error'}]: ${e.message}`, 'err');
       }
     }
-    addLog(`[진단] 두 경로 모두 실패 시: 사파리 콘텐츠 차단기/확장 비활성화 또는 시크릿 창에서 시도해 보세요`, 'info');
+    if (okCount === 0) {
+      addLog(`[진단] 두 경로 모두 실패 — 사파리 콘텐츠 차단기/확장 비활성화 또는 시크릿 창에서 시도 권장`, 'err');
+    }
   }, 100);
 
   document.getElementById('progressSection').style.display = 'block';
