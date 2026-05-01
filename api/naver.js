@@ -11,7 +11,7 @@
 
 const SEARCH_URL = 'https://search.naver.com/search.naver';
 const PER_PAGE   = 10;
-const MAX_PAGES  = 5; // request당 최대 페이지 (50개 결과까지)
+const MAX_PAGES  = 10; // request당 최대 페이지 (100개 결과까지 — 클라이언트 NAVER_PAGE_SIZE와 일치)
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
@@ -127,7 +127,7 @@ function extractCards(html, today) {
   return items;
 }
 
-async function searchCafeViaWeb(keyword, cafeId, dateFrom, dateTo, log = () => {}) {
+async function searchCafeViaWeb(keyword, cafeId, dateFrom, dateTo, startParam = 1, log = () => {}) {
   const today = todayKR();
   const all = [];
   const seen = new Set();
@@ -142,8 +142,11 @@ async function searchCafeViaWeb(keyword, cafeId, dateFrom, dateTo, log = () => {
     ? `p:from${fromYMD}to${toYMD},so:dd`
     : `so:dd`;
 
+  // startParam은 search.naver.com의 1-base 결과 인덱스 (1, 11, 21, …, 101, …)
+  // 클라이언트가 페이지네이션할 때 start += NAVER_PAGE_SIZE(100)으로 증가시키므로
+  // 여기서 100건씩 잘라 응답해야 빠짐없이 누적된다.
   for (let page = 0; page < MAX_PAGES; page++) {
-    const start = page * PER_PAGE + 1;
+    const start = startParam + (page * PER_PAGE);
     const url = `${SEARCH_URL}?ssc=tab.cafe.all&sm=tab_jum`
               + `&start=${start}`
               + `&query=${encodeURIComponent(query)}`
@@ -186,13 +189,16 @@ export default async function handler(req, res) {
     cafeId   = '',
     dateFrom = '',
     dateTo   = '',
+    start    = '1',
   } = req.query;
 
   // keyword 비어 있어도 OK — cafeId만 있으면 카페 전체글을 기간 필터로 가져옴
   if (!keyword && !cafeId) return res.status(400).json({ error: '키워드 또는 cafeId 필요' });
 
+  const startParam = parseInt(start) || 1;
+
   try {
-    const items = await searchCafeViaWeb(keyword, cafeId, dateFrom, dateTo);
+    const items = await searchCafeViaWeb(keyword, cafeId, dateFrom, dateTo, startParam);
     res.status(200).json({
       items,
       _rawCount: items.length,
