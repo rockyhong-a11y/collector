@@ -127,10 +127,11 @@ function extractCards(html, today) {
   return items;
 }
 
-async function searchCafeViaWeb(keyword, cafeId, dateFrom, dateTo, startParam = 1, log = () => {}) {
+async function searchCafeViaWeb(keyword, cafeId, dateFrom, dateTo, startParam = 1) {
   const today = todayKR();
   const all = [];
   const seen = new Set();
+  const debug = { firstStatus: null, firstError: null, firstHtmlSize: 0, firstCardCount: null, firstSnippet: '' };
 
   // keyword 비었으면 cafe:CAFEID 단독 검색 (카페 전체글 + 기간 필터)
   const query = cafeId
@@ -158,13 +159,35 @@ async function searchCafeViaWeb(keyword, cafeId, dateFrom, dateTo, startParam = 
         headers: {
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
           'Accept-Language': 'ko-KR,ko;q=0.9',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Referer': 'https://www.naver.com/',
         },
       });
-      if (!r.ok) break;
+      if (page === 0) debug.firstStatus = r.status;
+      if (!r.ok) {
+        if (page === 0) debug.firstError = `HTTP ${r.status} from search.naver.com`;
+        break;
+      }
       html = await r.text();
-    } catch { break; }
+    } catch (e) {
+      if (page === 0) debug.firstError = `fetch failed: ${e.name||'Error'}: ${e.message}`;
+      break;
+    }
 
     const items = extractCards(html, today);
+    if (page === 0) {
+      debug.firstHtmlSize = html.length;
+      debug.firstCardCount = items.length;
+      // HTML이 정상 응답인지 확인하기 위한 짧은 스니펫 (cafe link 없을 때만 진단용)
+      if (items.length === 0) {
+        debug.firstSnippet = html.replace(/<script[\s\S]*?<\/script>/g, '')
+                                 .replace(/<style[\s\S]*?<\/style>/g, '')
+                                 .replace(/<[^>]+>/g, ' ')
+                                 .replace(/\s+/g, ' ')
+                                 .trim()
+                                 .slice(0, 200);
+      }
+    }
     let added = 0;
     for (const it of items) {
       if (seen.has(it.link)) continue;
@@ -178,7 +201,7 @@ async function searchCafeViaWeb(keyword, cafeId, dateFrom, dateTo, startParam = 
     if (added === 0) break;
   }
 
-  return all;
+  return { items: all, debug };
 }
 
 export default async function handler(req, res) {
@@ -198,7 +221,7 @@ export default async function handler(req, res) {
   const startParam = parseInt(start) || 1;
 
   try {
-    const items = await searchCafeViaWeb(keyword, cafeId, dateFrom, dateTo, startParam);
+    const { items, debug } = await searchCafeViaWeb(keyword, cafeId, dateFrom, dateTo, startParam);
     res.status(200).json({
       items,
       _rawCount: items.length,
@@ -206,6 +229,7 @@ export default async function handler(req, res) {
       _interpolated: 0,
       _noInfo: 0,
       _source: 'search.naver.com',
+      _debug: debug,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });

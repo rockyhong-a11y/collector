@@ -964,6 +964,16 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
         if (start === 1) {
           const kwLabel = kw ? `키워드 "${kw}"` : '카페 전체';
           log(`  ${kwLabel} [${source}] — 기간 내 ${items.length}건`);
+          // 0건 + 서버 디버그 정보 → 차단/구조변경 진단 노출
+          const dbg = data._debug;
+          if (items.length === 0 && dbg) {
+            if (dbg.firstError) {
+              log(`  → search.naver.com 차단 의심: ${dbg.firstError}`, 'err');
+            } else if (dbg.firstStatus === 200 && dbg.firstCardCount === 0) {
+              log(`  → 응답 OK(200) but 카페 카드 0개 — HTML ${dbg.firstHtmlSize}B, 구조 변경 또는 캡차 가능성`, 'warn');
+              if (dbg.firstSnippet) log(`     스니펫: ${dbg.firstSnippet}`, 'warn');
+            }
+          }
         }
 
         // 원본 응답 자체가 0이면 — Naver에 해당 키워드 결과 없음. 다음 키워드.
