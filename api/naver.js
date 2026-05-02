@@ -229,6 +229,7 @@ export default async function handler(req, res) {
       _interpolated: 0,
       _noInfo: 0,
       _source: 'search.naver.com',
+      _version: 'v3-debug',
       _debug: debug,
     });
   } catch (e) {

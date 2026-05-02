@@ -963,11 +963,14 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
 
         if (start === 1) {
           const kwLabel = kw ? `키워드 "${kw}"` : '카페 전체';
-          log(`  ${kwLabel} [${source}] — 기간 내 ${items.length}건`);
+          const ver = data._version ? ` ${data._version}` : '';
+          log(`  ${kwLabel} [${source}${ver}] — 기간 내 ${items.length}건`);
           // 0건 + 서버 디버그 정보 → 차단/구조변경 진단 노출
           const dbg = data._debug;
-          if (items.length === 0 && dbg) {
-            if (dbg.firstError) {
+          if (items.length === 0) {
+            if (!dbg) {
+              log(`  → 서버에서 _debug 필드를 보내지 않음 — Vercel 구버전 배포 가능성 (재배포 필요)`, 'warn');
+            } else if (dbg.firstError) {
               log(`  → search.naver.com 차단 의심: ${dbg.firstError}`, 'err');
             } else if (dbg.firstStatus === 200 && dbg.firstCardCount === 0) {
               log(`  → 응답 OK(200) but 카페 카드 0개 — HTML ${dbg.firstHtmlSize}B, 구조 변경 또는 캡차 가능성`, 'warn');
@@ -1284,7 +1287,9 @@ document.getElementById('btnStart').addEventListener('click', async () => {
     //   - DC/공식 + 키워드 미입력: strict=true (BUG/OPINION 매칭 글만)
     //   - DC/공식 + 키워드 입력: strict=false (이미 사이트가 사전 필터함)
     const hasUserKw = userKeywords.length > 0;
-    log(`=== 분류 중 (총 ${allPosts.length}건${hasUserKw?'':' · DC·공식 strict'}) ===`, 'info');
+    // 분류 라벨: 실제로 strict가 적용될 DC/공식 게시물이 있을 때만 표기
+    const hasStrictPosts = !hasUserKw && allPosts.some(p => !(p.source || '').startsWith('네이버카페'));
+    log(`=== 분류 중 (총 ${allPosts.length}건${hasStrictPosts?' · DC·공식 strict':''}) ===`, 'info');
     setProgress(90, '분류 중...');
     const filtered = [];
     let droppedStrict = 0, droppedFilter = 0;
