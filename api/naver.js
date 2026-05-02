@@ -1,22 +1,22 @@
-// Naver Cafe 검색 — search.naver.com (tab.cafe.all) 스크래핑 방식
+// Naver Cafe 수집 — cafe.naver.com/ArticleList.nhn 직접 스크래핑
 //
-// 사연: openapi.naver.com/cafearticle.json은 컴투스 카페들의 postdate를 거의
-//       반환하지 않아 정확한 기간 필터링 불가. 반면 search.naver.com의
-//       카페 검색 페이지는 사용자용으로 HTML에 게시일자를 직접 렌더링하고
-//       nso=p:fromYYYYMMDDtoYYYYMMDD 파라미터로 기간 필터까지 지원함.
+// 배경:
+//   search.naver.com 카페 탭은 결과를 JavaScript로 동적 렌더링하게 바뀌어서
+//   서버 응답 HTML에 cafe.naver.com/slug/articleId 링크가 전혀 없음 (89KB 껍데기만).
 //
-// 동작: keyword + cafe:CAFEID + 기간 nso → search.naver.com 카페 탭 스크래핑
-//       각 게시물의 link, 제목, 날짜(절대 또는 상대) 추출 → 절대 날짜로 변환
-//       모든 항목에 verified date가 부여되므로 사용자 기간과 1:1 동기화
+// 새 방식:
+//   cafe.naver.com/ArticleList.nhn?search.clubid=CAFEID 를 직접 호출.
+//   - cafeId: 숫자 ID 그대로 사용 (URL slug 불필요)
+//   - 날짜 내림차순 정렬 → 기간을 벗어나는 글이 나오면 중단
+//   - 상대 href (/slug/id) 와 절대 URL (https://cafe.naver.com/slug/id) 모두 추출
+//   - MAX_PAGES × PER_PAGE_CAFE 건까지 수집 (최대 ~300건)
 
-const SEARCH_URL = 'https://search.naver.com/search.naver';
-const PER_PAGE   = 10;
-const MAX_PAGES  = 10; // request당 최대 페이지 (100개 결과까지 — 클라이언트 NAVER_PAGE_SIZE와 일치)
+const PER_PAGE_CAFE = 50;
+const MAX_PAGES     = 6;  // 최대 300건
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
 function todayKR() {
-  // KST 기준 오늘 (UTC+9)
   const now = new Date();
   const kst = new Date(now.getTime() + (9 * 60 - now.getTimezoneOffset()) * 60000);
   return kst.toISOString().slice(0, 10);
@@ -28,7 +28,6 @@ function shiftDate(baseISO, days) {
   return d.toISOString().slice(0, 10);
 }
 
-// 상대시간/절대날짜 텍스트를 YYYY-MM-DD로 변환
 function parseDateText(text, today) {
   if (!text) return null;
   text = text.trim();
@@ -37,7 +36,6 @@ function parseDateText(text, today) {
   if (text === '그저께') return shiftDate(today, -2);
   let m = text.match(/(\d+)\s*시간\s*전/);
   if (m) {
-    // N시간 전 — 시각 기준 today 또는 어제일 수 있으나 보통 today로 충분
     const hrs = parseInt(m[1]);
     const now = new Date();
     now.setHours(now.getHours() - hrs);
@@ -54,104 +52,80 @@ function parseDateText(text, today) {
   return null;
 }
 
-// HTML에서 카페 게시물 카드 추출 — link, title, date
-function extractCards(html, today) {
+// cafe.naver.com 게시물 목록 HTML 파싱
+// - 절대 URL: https://cafe.naver.com/SLUG/ID
+// - 상대 href: /SLUG/ID  (cafe.naver.com 페이지 기준)
+function extractArticles(html, today) {
   const items = [];
-  // 카드 단위 분할: 각 카페 article 링크부터 다음 article 링크 직전까지
-  const linkRe = /cafe\.naver\.com\/(\w+)\/(\d+)/g;
-  const positions = [];
-  let m;
-  while ((m = linkRe.exec(html)) !== null) {
-    positions.push({ idx: m.index, cafe: m[1], aid: m[2] });
-  }
+  const seen  = new Set();
 
-  // 각 link 위치에서 forward 3000자 안의 날짜 텍스트 찾기
-  const datePatterns = /(\d+\s*(?:시간|분|일|초)\s*전|어제|그저께|오늘|20\d{2}\.\d{1,2}\.\d{1,2})/;
-  const seen = new Set();
+  // 절대 URL 패턴
+  const absRe = /https?:\/\/cafe\.naver\.com\/([A-Za-z0-9_]+)\/(\d+)/g;
+  // 상대 href 패턴 — "/slug/number" 형식
+  const relRe = /href="\/([A-Za-z0-9_]+)\/(\d+)"/g;
 
-  for (const pos of positions) {
-    const key = `${pos.cafe}/${pos.aid}`;
-    if (seen.has(key)) continue;
+  const datePattern = /(\d+\s*(?:시간|분|일|초)\s*전|어제|그저께|오늘|20\d{2}\.\d{1,2}\.\d{1,2})/;
 
-    // forward window
-    const window = html.slice(pos.idx, pos.idx + 3500);
-    const dm = window.match(datePatterns);
-    if (!dm) continue;
+  function tryAdd(cafe, aid, idx) {
+    const key = `${cafe}/${aid}`;
+    if (seen.has(key)) return;
+
+    // 링크 주변 ±2000자 내 날짜 텍스트 탐색
+    const before = html.slice(Math.max(0, idx - 2000), idx);
+    const after  = html.slice(idx, idx + 2000);
+
+    // 후방 탐색 우선 (목록에서 날짜가 뒤에 오는 경우)
+    let dm = after.match(datePattern) || before.match(datePattern);
+    if (!dm) return;
     const date = parseDateText(dm[1], today);
-    if (!date) continue;
+    if (!date) return;
 
-    // 텍스트 추출 — script/style 제거 후 태그 → 파이프 구분자
-    const cleaned = window
+    // 제목 추출: 링크 이후 첫 텍스트
+    const titleWin = html.slice(idx, idx + 1500)
       .replace(/<script[\s\S]*?<\/script>/g, '')
       .replace(/<style[\s\S]*?<\/style>/g, '')
       .replace(/<[^>]+>/g, '|')
       .replace(/\|+/g, '|');
-
-    // 파이프 단위 텍스트 분리 → 검색결과 카드의 텍스트들
-    const texts = cleaned.split('|')
-      .map(s => s.trim())
-      .filter(s => s.length > 0);
-
-    // 카페 카드 패턴:
-    //   ... [카페명] [대표/유저] [날짜] [제목+본문 한 줄] ...
-    // 날짜 텍스트의 인덱스 찾기 → 그 다음 첫 의미있는 텍스트가 제목/본문
-    const dateText = dm[1].trim();
-    const di = texts.findIndex(t => t === dateText || t.includes(dateText));
-    let title = '', description = '';
-    if (di >= 0 && di + 1 < texts.length) {
-      // 다음 의미있는 텍스트들 합쳐서 본문/제목 후보
-      for (let k = di + 1; k < Math.min(di + 5, texts.length); k++) {
-        const t = texts[k];
-        if (t.length < 5) continue;
-        if (/^(?:Keep|문서|검색|이미지|링크)/.test(t)) continue;
-        if (!title) {
-          // 첫 줄을 제목으로 (앞 80자)
-          title = t.slice(0, 100);
-        }
-        description += t + ' ';
-        if (description.length > 250) break;
-      }
-    }
-    description = description.trim().slice(0, 300);
+    const texts = titleWin.split('|').map(s => s.trim()).filter(s => s.length >= 3);
+    const title = texts.find(t => !/^(?:추천|댓글|조회|신고|더보기|\d+)$/.test(t)) || '';
 
     seen.add(key);
     items.push({
-      title: title || description.slice(0, 60),
-      link: `https://cafe.naver.com/${pos.cafe}/${pos.aid}`,
-      description,
-      cafename: pos.cafe,
+      title,
+      link: `https://cafe.naver.com/${cafe}/${aid}`,
+      description: title,
+      cafename: cafe,
       _date: date,
       postdate: date.replace(/-/g, ''),
     });
   }
+
+  let m;
+  while ((m = absRe.exec(html)) !== null) {
+    tryAdd(m[1], m[2], m.index);
+  }
+  while ((m = relRe.exec(html)) !== null) {
+    tryAdd(m[1], m[2], m.index);
+  }
+
   return items;
 }
 
-async function searchCafeViaWeb(keyword, cafeId, dateFrom, dateTo, startParam = 1) {
-  const today = todayKR();
-  const all = [];
-  const seen = new Set();
-  const debug = { firstStatus: null, firstError: null, firstHtmlSize: 0, firstCardCount: null, firstSnippet: '' };
+async function fetchCafeArticles(cafeId, dateFrom, dateTo, startParam = 1) {
+  const today  = todayKR();
+  const all    = [];
+  const seen   = new Set();
+  const debug  = { firstStatus: null, firstError: null, firstHtmlSize: 0, firstCardCount: null, firstSnippet: '' };
 
-  // keyword 비었으면 cafe:CAFEID 단독 검색 (카페 전체글 + 기간 필터)
-  const query = cafeId
-    ? (keyword ? `cafe:${cafeId} ${keyword}` : `cafe:${cafeId}`)
-    : keyword;
-  const fromYMD = (dateFrom || '').replace(/-/g, '');
-  const toYMD   = (dateTo   || '').replace(/-/g, '');
-  const nso = (fromYMD && toYMD)
-    ? `p:from${fromYMD}to${toYMD},so:dd`
-    : `so:dd`;
+  const startPage = Math.max(1, Math.floor((startParam - 1) / PER_PAGE_CAFE) + 1);
 
-  // startParam은 search.naver.com의 1-base 결과 인덱스 (1, 11, 21, …, 101, …)
-  // 클라이언트가 페이지네이션할 때 start += NAVER_PAGE_SIZE(100)으로 증가시키므로
-  // 여기서 100건씩 잘라 응답해야 빠짐없이 누적된다.
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const start = startParam + (page * PER_PAGE);
-    const url = `${SEARCH_URL}?ssc=tab.cafe.all&sm=tab_jum`
-              + `&start=${start}`
-              + `&query=${encodeURIComponent(query)}`
-              + `&nso=${encodeURIComponent(nso)}`;
+  for (let i = 0; i < MAX_PAGES; i++) {
+    const page = startPage + i;
+    const url = `https://cafe.naver.com/ArticleList.nhn`
+              + `?search.clubid=${encodeURIComponent(cafeId)}`
+              + `&search.sortby=date`
+              + `&search.page=${page}`
+              + `&search.perPage=${PER_PAGE_CAFE}`;
 
     let html;
     try {
@@ -160,45 +134,46 @@ async function searchCafeViaWeb(keyword, cafeId, dateFrom, dateTo, startParam = 
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
           'Accept-Language': 'ko-KR,ko;q=0.9',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Referer': 'https://www.naver.com/',
+          'Referer': `https://cafe.naver.com/`,
         },
       });
-      if (page === 0) debug.firstStatus = r.status;
+      if (i === 0) debug.firstStatus = r.status;
       if (!r.ok) {
-        if (page === 0) debug.firstError = `HTTP ${r.status} from search.naver.com`;
+        if (i === 0) debug.firstError = `HTTP ${r.status} from cafe.naver.com/ArticleList.nhn`;
         break;
       }
       html = await r.text();
     } catch (e) {
-      if (page === 0) debug.firstError = `fetch failed: ${e.name||'Error'}: ${e.message}`;
+      if (i === 0) debug.firstError = `fetch failed: ${e.name||'Error'}: ${e.message}`;
       break;
     }
 
-    const items = extractCards(html, today);
-    if (page === 0) {
-      debug.firstHtmlSize = html.length;
+    const items = extractArticles(html, today);
+    if (i === 0) {
+      debug.firstHtmlSize  = html.length;
       debug.firstCardCount = items.length;
-      // HTML이 정상 응답인지 확인하기 위한 짧은 스니펫 (cafe link 없을 때만 진단용)
       if (items.length === 0) {
-        debug.firstSnippet = html.replace(/<script[\s\S]*?<\/script>/g, '')
-                                 .replace(/<style[\s\S]*?<\/style>/g, '')
-                                 .replace(/<[^>]+>/g, ' ')
-                                 .replace(/\s+/g, ' ')
-                                 .trim()
-                                 .slice(0, 200);
+        debug.firstSnippet = html
+          .replace(/<script[\s\S]*?<\/script>/g, '')
+          .replace(/<style[\s\S]*?<\/style>/g, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 300);
       }
     }
-    let added = 0;
+
+    let added = 0, hitOldDate = false;
     for (const it of items) {
       if (seen.has(it.link)) continue;
       seen.add(it.link);
-      // 안전장치: 추출 날짜가 사용자 기간 내인지 재확인
-      if (dateFrom && it._date < dateFrom) continue;
+      if (dateFrom && it._date < dateFrom) { hitOldDate = true; continue; }
       if (dateTo   && it._date > dateTo)   continue;
       all.push(it);
       added++;
     }
-    if (added === 0) break;
+    // 기간 이전 글 발견 or 페이지가 덜 찼으면 → 이후 페이지 없음
+    if (hitOldDate || items.length === 0 || items.length < PER_PAGE_CAFE) break;
   }
 
   return { items: all, debug };
@@ -215,21 +190,20 @@ export default async function handler(req, res) {
     start    = '1',
   } = req.query;
 
-  // keyword 비어 있어도 OK — cafeId만 있으면 카페 전체글을 기간 필터로 가져옴
-  if (!keyword && !cafeId) return res.status(400).json({ error: '키워드 또는 cafeId 필요' });
+  if (!cafeId) return res.status(400).json({ error: 'cafeId 필요' });
 
   const startParam = parseInt(start) || 1;
 
   try {
-    const { items, debug } = await searchCafeViaWeb(keyword, cafeId, dateFrom, dateTo, startParam);
+    const { items, debug } = await fetchCafeArticles(cafeId, dateFrom, dateTo, startParam);
     res.status(200).json({
       items,
       _rawCount: items.length,
       _anchors: items.length,
       _interpolated: 0,
       _noInfo: 0,
-      _source: 'search.naver.com',
-      _version: 'v3-debug',
+      _source: 'cafe.naver.com/ArticleList',
+      _version: 'v4-articlelist',
       _debug: debug,
     });
   } catch (e) {
