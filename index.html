@@ -752,7 +752,10 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log, userKeywords=[]) {
 
           // 매칭 실패 + fetch도 실패하지 않은 경우만 스킵
           // (fetch 실패 시엔 keep — 잠재 매칭 가능성을 폐기하지 않음)
-          if (!contentMatch && !fetchFailed) {
+          // 버그신고 게시판(board_idx=28) 글은 버그 키워드 검색 시 매칭 없이 포함
+          const bugBoardBypass = bidx == 28
+            && userKeywords.some(k => BUG_KW.some(bk => fuzzyIncludes(bk, k)));
+          if (!contentMatch && !fetchFailed && !bugBoardBypass) {
             kwSkip++;
             await sleep(80);
             continue;
@@ -867,7 +870,10 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log, userKeywords=[]) {
           }
 
           // 매칭 실패 + fetch 실패도 아닌 경우만 스킵
-          if (!contentMatch && !fetchFailed) {
+          // 버그신고 게시판(board_idx=21) 글은 버그 키워드 검색 시 매칭 없이 포함
+          const bugBoardBypass = bidx == 21
+            && userKeywords.some(k => BUG_KW.some(bk => fuzzyIncludes(bk, k)));
+          if (!contentMatch && !fetchFailed && !bugBoardBypass) {
             kwSkip++;
             await sleep(80);
             continue;
@@ -957,7 +963,20 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
 
         if (start === 1) {
           const kwLabel = kw ? `키워드 "${kw}"` : '카페 전체';
-          log(`  ${kwLabel} [${source}] — 기간 내 ${items.length}건`);
+          const ver = data._version ? ` ${data._version}` : '';
+          log(`  ${kwLabel} [${source}${ver}] — 기간 내 ${items.length}건`);
+          // 0건 + 서버 디버그 정보 → 차단/구조변경 진단 노출
+          const dbg = data._debug;
+          if (items.length === 0) {
+            if (!dbg) {
+              log(`  → 서버에서 _debug 필드를 보내지 않음 — Vercel 구버전 배포 가능성 (재배포 필요)`, 'warn');
+            } else if (dbg.firstError) {
+              log(`  → search.naver.com 차단 의심: ${dbg.firstError}`, 'err');
+            } else if (dbg.firstStatus === 200 && dbg.firstCardCount === 0) {
+              log(`  → 응답 OK(200) but 카페 카드 0개 — HTML ${dbg.firstHtmlSize}B, 구조 변경 또는 캡차 가능성`, 'warn');
+              if (dbg.firstSnippet) log(`     스니펫: ${dbg.firstSnippet}`, 'warn');
+            }
+          }
         }
 
         // 원본 응답 자체가 0이면 — Naver에 해당 키워드 결과 없음. 다음 키워드.
@@ -1256,10 +1275,11 @@ document.getElementById('btnStart').addEventListener('click', async () => {
     }
 
     // ── 사후 키워드 필터 제거 ────────────────────────────────
-    // 모든 소스가 키워드 입력 단계에서 이미 사전 필터링됨:
-    //   네이버카페 — API 검색어
-    //   DC인사이드 — s_keyword (subject_memo + comment) 검색 URL
-    //   공식 커뮤니티 — /board/all 수집 후 본문+댓글 fetch 매칭
+    // 소스별 키워드 적용 방식:
+    //   DC인사이드  — s_keyword (subject_memo + comment) 검색 URL로 사전 필터
+    //   공식커뮤    — /board/all 수집 후 본문+댓글 fetch 매칭
+    //               (버그신고 게시판 글은 버그 키워드 검색 시 매칭 없이 포함)
+    //   네이버카페  — 키워드 무시, 기간 내 카페 전체글 수집 (카테고리 필터만 사후 적용)
 
     // ── 카테고리 분류 ───────────────────────────────────────
     // 사이트별 strict 모드 결정:
@@ -1267,7 +1287,9 @@ document.getElementById('btnStart').addEventListener('click', async () => {
     //   - DC/공식 + 키워드 미입력: strict=true (BUG/OPINION 매칭 글만)
     //   - DC/공식 + 키워드 입력: strict=false (이미 사이트가 사전 필터함)
     const hasUserKw = userKeywords.length > 0;
-    log(`=== 분류 중 (총 ${allPosts.length}건${hasUserKw?'':' · DC·공식 strict'}) ===`, 'info');
+    // 분류 라벨: 실제로 strict가 적용될 DC/공식 게시물이 있을 때만 표기
+    const hasStrictPosts = !hasUserKw && allPosts.some(p => !(p.source || '').startsWith('네이버카페'));
+    log(`=== 분류 중 (총 ${allPosts.length}건${hasStrictPosts?' · DC·공식 strict':''}) ===`, 'info');
     setProgress(90, '분류 중...');
     const filtered = [];
     let droppedStrict = 0, droppedFilter = 0;
