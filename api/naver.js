@@ -13,7 +13,7 @@
 //   dateFrom, dateTo — YYYY-MM-DD (빈 값이면 날짜 필터 없음)
 //   start     — 시작 인덱스 (페이지네이션)
 
-import { createPublicKey, publicEncrypt, constants } from 'node:crypto';
+// crypto는 동적 import — Vercel 번들러 호환성
 
 const PER_PAGE = 50;
 const MAX_PAGES = 20; // 최대 1000건
@@ -103,7 +103,7 @@ function extractFromHtml(html, today, cafeId) {
 
 // ── Naver RSA 로그인 ──────────────────────────────────────────────
 
-function buildRSAKey(nHex, eHex) {
+function buildRSAKey(nHex, eHex, createPublicKeyFn) {
   const n = Buffer.from(nHex, 'hex');
   const e = Buffer.from(eHex, 'hex');
   const nPos = (n[0] & 0x80) ? Buffer.concat([Buffer.from([0x00]), n]) : n;
@@ -120,7 +120,7 @@ function buildRSAKey(nHex, eHex) {
   const rsaPubKey = tlv(0x30, Buffer.concat([tlv(0x02, nPos), tlv(0x02, ePos)]));
   const algId = Buffer.from('300d06092a864886f70d0101010500', 'hex');
   const bitStr = tlv(0x03, Buffer.concat([Buffer.from([0x00]), rsaPubKey]));
-  return createPublicKey({ key: tlv(0x30, Buffer.concat([algId, bitStr])), format: 'der', type: 'spki' });
+  return createPublicKeyFn({ key: tlv(0x30, Buffer.concat([algId, bitStr])), format: 'der', type: 'spki' });
 }
 
 function parseCookieHeader(raw) {
@@ -140,6 +140,9 @@ function cookieStr(obj) { return Object.entries(obj).map(([k, v]) => `${k}=${v}`
 
 async function naverLogin(naverId, naverPw) {
   try {
+    // 동적 import — 번들러가 정적 분석하지 않도록
+    const { createPublicKey, publicEncrypt, constants } = await import('node:crypto').catch(() => import('crypto'));
+
     const keysRes = await fetch('https://nid.naver.com/login/ext/keys.nhn', {
       headers: { 'User-Agent': UA, 'Referer': 'https://nid.naver.com/nidlogin.login' },
     });
@@ -157,7 +160,7 @@ async function naverLogin(naverId, naverPw) {
       Buffer.from(naverPw, 'utf8'),
     ]);
 
-    const pubKey = buildRSAKey(nHex, eHex);
+    const pubKey = buildRSAKey(nHex, eHex, createPublicKey);
     const encpw = publicEncrypt({ key: pubKey, padding: constants.RSA_PKCS1_PADDING }, plain).toString('hex');
 
     // 로그인 폼 페이지 쿠키 수집
