@@ -1,0 +1,22 @@
+{
+  "sandbox": {
+    "network": {
+      "allowedDomains": ["api.vercel.com"]
+    }
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command' | grep -q 'git push' && curl -s -X POST \"https://api.vercel.com/v1/integrations/deploy/prj_b1MOTexae1hacT7vGDYOAqeynVmb/GhBrD9k9ka\" || true",
+            "statusMessage": "Vercel 재배포 중...",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
