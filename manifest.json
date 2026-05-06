@@ -1,0 +1,18 @@
+{
+  "name": "야구 게임 커뮤니티 수집 툴",
+  "short_name": "커뮤니티 수집",
+  "description": "DC인사이드·공식카페·네이버카페 게시글 수집 및 분류",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#1f6feb",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='24' fill='%231f6feb'/><text x='96' y='130' font-size='110' text-anchor='middle'>⚾</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

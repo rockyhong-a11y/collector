@@ -6,6 +6,11 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
+<meta name="theme-color" content="#1f6feb">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="커뮤니티 수집">
+<link rel="manifest" href="/manifest.json">
 <title>⚾ 야구 게임 커뮤니티 수집 툴</title>
 <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
 <style>
@@ -971,9 +976,10 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
             if (!dbg) {
               log(`  → 서버에서 _debug 필드를 보내지 않음 — Vercel 구버전 배포 가능성 (재배포 필요)`, 'warn');
             } else if (dbg.firstError) {
-              log(`  → search.naver.com 차단 의심: ${dbg.firstError}`, 'err');
+              log(`  → Naver 수집 실패 [${dbg.method||'?'}]: ${dbg.firstError}`, 'err');
+              if (dbg.firstSnippet) log(`     스니펫: ${dbg.firstSnippet}`, 'warn');
             } else if (dbg.firstStatus === 200 && dbg.firstCardCount === 0) {
-              log(`  → 응답 OK(200) but 카페 카드 0개 — HTML ${dbg.firstHtmlSize}B, 구조 변경 또는 캡차 가능성`, 'warn');
+              log(`  → 응답 OK(200) but 게시글 0개 — 구조 변경 또는 캡차 가능성`, 'warn');
               if (dbg.firstSnippet) log(`     스니펫: ${dbg.firstSnippet}`, 'warn');
             }
           }
@@ -1391,6 +1397,11 @@ document.getElementById('btnReset').addEventListener('click', () => {
   setProgress(0, '');
   window.scrollTo({ top: 0, behavior:'smooth' });
 });
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+}
 </script>
 </body>
 </html>
