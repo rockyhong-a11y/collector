@@ -40,8 +40,20 @@ header{background:linear-gradient(135deg,#0d2137 0%,#1a3a5c 100%);padding:18px 3
 /* ── Form controls ───────────────────────────────────────── */
 .field{display:flex;flex-direction:column;gap:6px}
 label.field-label{font-size:12px;color:#8b949e}
-input[type=date],input[type=text]{background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:9px 12px;border-radius:8px;font-size:13px;width:100%;transition:border-color .2s}
-input[type=date]:focus,input[type=text]:focus{outline:none;border-color:#58a6ff;box-shadow:0 0 0 3px rgba(88,166,255,.15)}
+input[type=date],input[type=text],input[type=password],input[type=number]{background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:9px 12px;border-radius:8px;font-size:13px;width:100%;transition:border-color .2s}
+input[type=date]:focus,input[type=text]:focus,input[type=password]:focus,input[type=number]:focus{outline:none;border-color:#58a6ff;box-shadow:0 0 0 3px rgba(88,166,255,.15)}
+input[type=number]{-moz-appearance:textfield;width:auto}
+input[type=number]::-webkit-inner-spin-button{opacity:.5}
+
+/* ── Naver Cafe Config ───────────────────────────────────── */
+.naver-cafe-config{padding:12px 0 4px;border-top:1px solid #21262d;margin-top:4px}
+.naver-cafe-config-title{font-size:12px;font-weight:600;color:#c9d1d9;display:flex;align-items:center;gap:6px;margin-bottom:10px}
+.naver-mode-row{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:14px;padding-top:12px;border-top:1px solid #21262d}
+.naver-mode-opt{display:flex;align-items:center;gap:6px;font-size:12px;color:#8b949e;cursor:pointer;user-select:none}
+.naver-mode-opt input[type=radio]{accent-color:#58a6ff;cursor:pointer;width:auto}
+.naver-mode-opt input[type=number]{width:60px;padding:6px 8px}
+.opt-badge{font-size:10px;color:#6e7681;background:#21262d;border-radius:4px;padding:1px 5px;margin-left:4px;vertical-align:middle}
+.field-hint{font-size:10px;color:#484f58;margin-top:2px}
 input[type=text]::placeholder{color:#484f58}
 
 /* ── Game groups (수집 사이트) ───────────────────────────── */
@@ -233,11 +245,71 @@ tbody tr:hover td{background:#1c2128}
     </div>
   </div>
 
-  <!-- ── 네이버 카페 API 상태 카드 ── -->
+  <!-- ── 네이버 카페 수집 설정 카드 ── -->
   <div class="card" id="naverCard" style="display:none">
-    <div class="card-title">🔗 네이버카페 API 수집</div>
-    <div class="notice">✅ 네이버 검색 API로 자동 수집합니다. 선택된 카페만 검색하며, 별도 작업 없이 수집 시작을 누르면 됩니다.</div>
-    <div class="naver-status">
+    <div class="card-title">🔗 네이버카페 수집 설정</div>
+
+    <!-- 로그인 정보 (비공개 카페 접근 시 필요) -->
+    <div class="grid-2" style="margin-bottom:4px">
+      <div class="field">
+        <label class="field-label">🔐 네이버 아이디 <span class="opt-badge">선택</span></label>
+        <input type="text" id="naverId" placeholder="아이디" autocomplete="username">
+        <span class="field-hint">비공개 카페 접근 시 입력</span>
+      </div>
+      <div class="field">
+        <label class="field-label">🔑 비밀번호 <span class="opt-badge">선택</span></label>
+        <input type="password" id="naverPw" placeholder="비밀번호" autocomplete="current-password">
+        <span class="field-hint">공개 카페는 로그인 없이도 수집됩니다</span>
+      </div>
+    </div>
+
+    <!-- 컴프야26 설정 -->
+    <div class="naver-cafe-config" id="naverConfig_cpb26" style="display:none">
+      <div class="naver-cafe-config-title"><span class="game-dot dot-cpb26" style="width:8px;height:8px;border-radius:50%;background:#d2a8ff;display:inline-block"></span>컴프야26</div>
+      <div class="grid-2">
+        <div class="field">
+          <label class="field-label">📌 카페 고유 ID</label>
+          <input type="text" id="cafeId_cpb26" value="27851354">
+        </div>
+        <div class="field">
+          <label class="field-label">📋 메뉴 ID (31/33=버그/제보, 15=건의, 0=전체)</label>
+          <input type="number" id="menuId_cpb26" value="0" min="0" style="max-width:120px">
+        </div>
+      </div>
+    </div>
+
+    <!-- MLB9이닝스 설정 -->
+    <div class="naver-cafe-config" id="naverConfig_9innings" style="display:none">
+      <div class="naver-cafe-config-title"><span class="game-dot dot-9innings" style="width:8px;height:8px;border-radius:50%;background:#7ee787;display:inline-block"></span>MLB9이닝스</div>
+      <div class="grid-2">
+        <div class="field">
+          <label class="field-label">📌 카페 고유 ID</label>
+          <input type="text" id="cafeId_9innings" value="28683505">
+        </div>
+        <div class="field">
+          <label class="field-label">📋 메뉴 ID (31/33=버그/제보, 22=건의, 0=전체)</label>
+          <input type="number" id="menuId_9innings" value="0" min="0" style="max-width:120px">
+        </div>
+      </div>
+    </div>
+
+    <!-- 수집 모드 -->
+    <div class="naver-mode-row">
+      <label class="naver-mode-opt">
+        <input type="radio" name="naverMode" value="date" id="naverModeDate" checked>
+        <span>📅 기간으로 수집</span>
+        <span class="field-hint">(상단 날짜 범위 사용)</span>
+      </label>
+      <label class="naver-mode-opt">
+        <input type="radio" name="naverMode" value="pages" id="naverModePages">
+        <span>📄 페이지 수로 수집</span>
+        <input type="number" id="naverPageCount" value="2" min="1" max="20">
+        <span class="field-hint">페이지 (1페이지=50건)</span>
+      </label>
+    </div>
+
+    <!-- 수집 상태 -->
+    <div class="naver-status" style="margin-top:14px;padding-top:12px;border-top:1px solid #21262d">
       <div class="naver-status-item" id="naverStatus_cpb26">
         <div><div class="cafe-name"><span class="pulse"></span>컴프야26 대기 중</div></div>
         <div class="cafe-count" id="naverCount_cpb26">-</div>
@@ -916,8 +988,12 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log, userKeywords=[]) {
 const NAVER_PAGE_SIZE  = 100;
 const NAVER_MAX_START  = 301;
 
-async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, log, statusKey, customKeywords=[]) {
-  log(`네이버카페 [${cafeName}] 수집 시작 (cafeid:${cafeId}) — 카페 전체글 모드`, 'info');
+// options: { naverId, naverPw, menuId, pageMode, pageCount }
+async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, log, statusKey, customKeywords=[], options={}) {
+  const { naverId='', naverPw='', menuId=0, pageMode=false, pageCount=2 } = options;
+  const modeLabel = pageMode ? `${pageCount}페이지 모드` : '기간 모드';
+  const menuLabel = menuId ? ` (메뉴ID:${menuId})` : '';
+  log(`네이버카페 [${cafeName}] 수집 시작 (cafeid:${cafeId}${menuLabel}) — ${modeLabel}`, 'info');
 
   // 네이버 카페는 키워드 필터링 없이 항상 카페 전체글 수집 (기간 필터만 적용)
   // 다른 사이트(DC/공식)와 달리 keyword를 무시함 — 사용자 의도: "수집 기간 내 모든 게시물"
@@ -929,17 +1005,24 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
   const seen      = new Set();
   const cleanHtml = s => s.replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
 
+  // 페이지 모드: 날짜 범위 무시, pageCount 페이지만 수집
+  const effectiveDateFrom = pageMode ? '' : dateFrom;
+  const effectiveDateTo   = pageMode ? '' : dateTo;
+  const maxStart = pageMode ? (pageCount * NAVER_PAGE_SIZE + 1) : NAVER_MAX_START;
+
   for (const kw of keywords) {
     let start = 1;
-    while (start < NAVER_MAX_START) {
+    while (start < maxStart) {
       try {
-        const params = new URLSearchParams({ keyword: kw, cafeId, display: NAVER_PAGE_SIZE, start, dateFrom, dateTo });
+        const params = new URLSearchParams({ keyword: kw, cafeId, menuId, display: NAVER_PAGE_SIZE, start, dateFrom: effectiveDateFrom, dateTo: effectiveDateTo });
+        if (naverId) params.set('naverId', naverId);
+        if (naverPw)  params.set('naverPw', naverPw);
         // 1순위 /cafe (별칭) → 2순위 /api/naver — 사파리 /api/* 차단 회피
         let res = null, lastErr = '';
         for (const apiPath of ['/cafe', '/api/naver']) {
           try {
             const ctrl = new AbortController();
-            const tid  = setTimeout(() => ctrl.abort(), 12000);
+            const tid  = setTimeout(() => ctrl.abort(), 15000);
             res = await fetch(`${apiPath}?${params}`, {
               signal: ctrl.signal, cache: 'no-store', credentials: 'omit'
             });
@@ -969,7 +1052,9 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
         if (start === 1) {
           const kwLabel = kw ? `키워드 "${kw}"` : '카페 전체';
           const ver = data._version ? ` ${data._version}` : '';
-          log(`  ${kwLabel} [${source}${ver}] — 기간 내 ${items.length}건`);
+          const dbgLogin = data._debug?.loginResult;
+          const loginTag = dbgLogin === 'login-ok' ? ' ✓로그인' : dbgLogin === 'login-failed' ? ' ✗로그인실패' : '';
+          log(`  ${kwLabel} [${source}${ver}${loginTag}] — 기간 내 ${items.length}건`);
           // 0건 + 서버 디버그 정보 → 차단/구조변경 진단 노출
           const dbg = data._debug;
           if (items.length === 0) {
@@ -1139,13 +1224,19 @@ document.querySelectorAll('.cat-btn').forEach(btn => {
   btn.addEventListener('click', () => btn.classList.toggle('on'));
 });
 
-// Site item checked state + show/hide Naver card
+// Site item checked state + show/hide Naver card + per-cafe config
+function syncNaverCard() {
+  const cpb26   = !!document.querySelector('.site-item input[value=naver_cpb26]:checked');
+  const innings = !!document.querySelector('.site-item input[value=naver_9innings]:checked');
+  const anyNaver = cpb26 || innings;
+  document.getElementById('naverCard').style.display         = anyNaver ? 'block' : 'none';
+  document.getElementById('naverConfig_cpb26').style.display   = cpb26   ? 'block' : 'none';
+  document.getElementById('naverConfig_9innings').style.display = innings ? 'block' : 'none';
+}
 document.querySelectorAll('.site-item input').forEach(cb => {
   cb.addEventListener('change', () => {
     cb.closest('.site-item').classList.toggle('checked', cb.checked);
-    const anyNaver = [...document.querySelectorAll('.site-item input:checked')]
-                       .some(c => ['naver_cpb26','naver_9innings'].includes(c.value));
-    document.getElementById('naverCard').style.display = anyNaver ? 'block' : 'none';
+    syncNaverCard();
   });
 });
 
@@ -1264,18 +1355,30 @@ document.getElementById('btnStart').addEventListener('click', async () => {
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
     }
 
-    // 네이버카페 — 컴프야26 (cafeid:27851354)
+    // 네이버 수집 옵션 (카드에서 읽기)
+    const naverLoginId  = document.getElementById('naverId')?.value.trim() || '';
+    const naverLoginPw  = document.getElementById('naverPw')?.value || '';
+    const naverPageMode = document.querySelector('input[name=naverMode]:checked')?.value === 'pages';
+    const naverPageCnt  = parseInt(document.getElementById('naverPageCount')?.value) || 2;
+
+    // 네이버카페 — 컴프야26
     if (sites.includes('naver_cpb26')) {
-      log('=== 네이버카페 컴프야26 API 수집 시작 ===', 'info');
-      const p = await scrapeNaverCafeAPI('컴프야26', '27851354', '컴프야26', dateFrom, dateTo, log, 'cpb26', userKeywords);
+      const cId  = document.getElementById('cafeId_cpb26')?.value.trim() || '27851354';
+      const mId  = parseInt(document.getElementById('menuId_cpb26')?.value) || 0;
+      log('=== 네이버카페 컴프야26 수집 시작 ===', 'info');
+      const p = await scrapeNaverCafeAPI('컴프야26', cId, '컴프야26', dateFrom, dateTo, log, 'cpb26', userKeywords,
+        { naverId: naverLoginId, naverPw: naverLoginPw, menuId: mId, pageMode: naverPageMode, pageCount: naverPageCnt });
       allPosts.push(...p);
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
     }
 
-    // 네이버카페 — MLB9이닝스 (cafeid:28683505)
+    // 네이버카페 — MLB9이닝스
     if (sites.includes('naver_9innings')) {
-      log('=== 네이버카페 MLB9이닝스 API 수집 시작 ===', 'info');
-      const p = await scrapeNaverCafeAPI('MLB9이닝스', '28683505', 'MLB9이닝스', dateFrom, dateTo, log, '9innings', userKeywords);
+      const cId  = document.getElementById('cafeId_9innings')?.value.trim() || '28683505';
+      const mId  = parseInt(document.getElementById('menuId_9innings')?.value) || 0;
+      log('=== 네이버카페 MLB9이닝스 수집 시작 ===', 'info');
+      const p = await scrapeNaverCafeAPI('MLB9이닝스', cId, 'MLB9이닝스', dateFrom, dateTo, log, '9innings', userKeywords,
+        { naverId: naverLoginId, naverPw: naverLoginPw, menuId: mId, pageMode: naverPageMode, pageCount: naverPageCnt });
       allPosts.push(...p);
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
     }
