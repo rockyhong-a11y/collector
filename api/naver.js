@@ -187,6 +187,7 @@ export default async function handler(req, res) {
     start    = '1',
     dateFrom = '',
     dateTo   = '',
+    cookie   = '',
   } = req.query;
 
   if (keyword === 'ping') return res.status(200).json({ pong: true, _version: 'v8-fe-ssr' });
@@ -214,7 +215,7 @@ export default async function handler(req, res) {
   for (let p = startNaverPage; p < startNaverPage + pagesPerBatch; p++) {
     let result;
     try {
-      result = await fetchNaverPage(cafeId, menuId, p, null);
+      result = await fetchNaverPage(cafeId, menuId, p, cookie || null);
     } catch (e) {
       if (p === startNaverPage) debug.firstError = `fetch: ${e.message}`;
       break;

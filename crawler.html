@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>⚾ Com2uS 프로야구 카페 크롤러</title>
+<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Malgun Gothic','Apple SD Gothic Neo','Segoe UI',sans-serif;background:#f0f2f5;min-height:100vh;color:#222;font-size:14px}
+
+/* Header */
+.hdr{background:linear-gradient(135deg,#02a24d,#03C75A);padding:18px 32px 16px;text-align:center;box-shadow:0 4px 18px rgba(3,199,90,.3)}
+.hdr h1{font-size:24px;font-weight:800;color:#fff;text-shadow:0 2px 6px rgba(0,0,0,.15)}
+.hdr p{font-size:12px;color:rgba(255,255,255,.85);margin-top:3px}
+.badge{display:inline-block;background:rgba(0,0,0,.18);color:#fff;font-size:10px;padding:2px 10px;border-radius:20px;margin-top:5px}
+
+/* Layout */
+.wrap{max-width:1060px;margin:0 auto;padding:22px 14px;display:grid;grid-template-columns:350px 1fr;gap:18px;align-items:start}
+@media(max-width:740px){.wrap{grid-template-columns:1fr}}
+
+/* Card */
+.card{background:#fff;border-radius:14px;box-shadow:0 2px 14px rgba(0,0,0,.07);overflow:hidden}
+.card-hd{background:#f8f9fa;border-bottom:1px solid #eee;padding:12px 18px;font-size:12.5px;font-weight:700;color:#555;display:flex;align-items:center;gap:6px}
+.card-bd{padding:18px}
+
+/* Form fields */
+.field{margin-bottom:13px}
+.field label{display:block;font-size:11.5px;font-weight:600;color:#555;margin-bottom:5px}
+.field input,.field select{width:100%;padding:8px 12px;border:1.5px solid #dee2e6;border-radius:7px;font-size:13px;font-family:inherit;color:#333;outline:none;transition:border-color .2s,box-shadow .2s;background:#fff}
+.field input:focus{border-color:#03C75A;box-shadow:0 0 0 3px rgba(3,199,90,.1)}
+.hint{font-size:10.5px;color:#999;margin-top:3px;line-height:1.5}
+
+/* Mode tabs */
+.mode-tabs{display:flex;border:1.5px solid #dee2e6;border-radius:7px;overflow:hidden;margin-bottom:11px}
+.mtab{flex:1;padding:8px;text-align:center;font-size:12px;font-weight:600;cursor:pointer;background:#f8f9fa;color:#888;border:none;border-right:1.5px solid #dee2e6;font-family:inherit;transition:all .18s}
+.mtab:last-child{border-right:none}
+.mtab.on{background:#03C75A;color:#fff}
+.mpanel{display:none}.mpanel.on{display:block}
+.date-row{display:grid;grid-template-columns:1fr 16px 1fr;gap:6px;align-items:center}
+.date-row .sep{text-align:center;font-weight:700;color:#aaa;font-size:13px}
+
+/* Cookie section */
+.ck-wrap{background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:12px 14px;margin-bottom:13px}
+.ck-title{font-size:12px;font-weight:700;color:#f57c00;display:flex;align-items:center;justify-content:space-between;cursor:pointer}
+.ck-title span{font-size:11px;color:#f57c00;text-decoration:underline}
+.ck-body{margin-top:10px;display:none}
+.ck-body.open{display:block}
+.ck-step{font-size:11px;color:#666;line-height:1.8;margin-bottom:8px}
+.ck-step code{background:#eee;padding:1px 6px;border-radius:3px;font-family:monospace;font-size:11px}
+.ck-row{display:grid;grid-template-columns:80px 1fr;gap:6px;align-items:center;margin-bottom:7px}
+.ck-row label{font-size:11.5px;font-weight:600;color:#555}
+.ck-row input{padding:7px 10px;border:1.5px solid #dee2e6;border-radius:6px;font-size:12px;font-family:monospace;outline:none;width:100%}
+.ck-row input:focus{border-color:#03C75A}
+
+/* Start button */
+.btn-start{width:100%;padding:13px;background:linear-gradient(135deg,#02a24d,#03C75A);color:#fff;border:none;border-radius:9px;font-size:14px;font-weight:700;cursor:pointer;transition:all .2s;box-shadow:0 4px 12px rgba(3,199,90,.3);font-family:inherit;margin-top:2px}
+.btn-start:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 6px 18px rgba(3,199,90,.4)}
+.btn-start:disabled{background:#adb5bd;box-shadow:none;cursor:not-allowed}
+.tip-box{background:#f0fdf6;border:1px solid #b8f0cf;border-radius:7px;padding:9px 13px;margin-top:10px;font-size:11px;color:#2d9c5a;line-height:1.7}
+
+/* Right: status bar + terminal */
+.status-bar{display:flex;align-items:center;gap:8px;padding:9px 14px;background:#0d1117;border-radius:8px 8px 0 0}
+.dot{width:7px;height:7px;border-radius:50%;background:#3a3a3a;transition:background .3s;flex-shrink:0}
+.dot.running{background:#03C75A;animation:pulse .9s infinite}
+.dot.done{background:#ffa657}
+.dot.error{background:#ff7b72}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.status-text{font-size:11px;color:#8b949e;font-family:monospace}
+.prog-wrap{height:3px;background:#1a2332;border-radius:0}
+.prog-bar{height:3px;background:#03C75A;width:0%;transition:width .4s;border-radius:0}
+.terminal{background:#1a1a2e;height:240px;overflow-y:auto;padding:12px 14px;font-family:'Consolas','D2Coding',monospace;font-size:11px;line-height:1.7}
+.terminal::-webkit-scrollbar{width:4px}
+.terminal::-webkit-scrollbar-thumb{background:#2d3748;border-radius:4px}
+.ll{color:#a8d8a8}.ll.info{color:#79c0ff}.ll.ok{color:#3fb950}.ll.err{color:#ff7b72}.ll.warn{color:#e3b341}.ll.res{color:#ffa657;font-weight:600}
+.t-placeholder{color:#444;text-align:center;padding-top:60px;font-size:12px;line-height:2.2}
+
+/* Results */
+.res-hd{display:flex;align-items:center;justify-content:space-between}
+.res-count{font-size:12px;font-weight:700;color:#03C75A}
+.btn-grp{display:flex;gap:7px}
+.btn-s{padding:6px 13px;border-radius:6px;font-size:11.5px;font-weight:600;cursor:pointer;border:none;font-family:inherit;transition:all .16s;display:flex;align-items:center;gap:4px}
+.btn-s:disabled{opacity:.35;cursor:not-allowed}
+.btn-cp{background:#1f6feb;color:#fff}
+.btn-cp:hover:not(:disabled){background:#1558c0;transform:translateY(-1px)}
+.btn-xl{background:#03C75A;color:#fff}
+.btn-xl:hover:not(:disabled){background:#02a24d;transform:translateY(-1px)}
+
+/* Table */
+.tbl-wrap{max-height:300px;overflow-y:auto;border:1px solid #eee;border-radius:7px;margin-top:11px}
+.tbl-wrap::-webkit-scrollbar{width:4px}
+.tbl-wrap::-webkit-scrollbar-thumb{background:#ccc;border-radius:4px}
+table{width:100%;border-collapse:collapse;font-size:11.5px}
+thead th{position:sticky;top:0;background:#03C75A;color:#fff;padding:8px 11px;text-align:left;font-weight:600;white-space:nowrap}
+tbody tr{border-bottom:1px solid #f0f0f0}
+tbody tr:hover{background:#f0fdf6}
+td{padding:7px 11px;vertical-align:top}
+.td-d{white-space:nowrap;color:#888;width:72px;font-size:11px}
+.td-t{max-width:170px;font-weight:500}
+.td-c{max-width:220px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;color:#555;font-size:11px}
+.td-l a{color:#1f6feb;font-size:11px;text-decoration:none}
+.td-l a:hover{text-decoration:underline}
+.empty-tbl{text-align:center;padding:36px;color:#bbb;font-size:12.5px}
+
+/* Toast */
+.toast{position:fixed;bottom:22px;right:22px;padding:10px 18px;border-radius:9px;font-size:12.5px;font-weight:600;color:#fff;box-shadow:0 4px 18px rgba(0,0,0,.2);z-index:9999;opacity:0;transform:translateY(10px);transition:all .26s;pointer-events:none}
+.toast.show{opacity:1;transform:translateY(0)}
+.toast.g{background:#03C75A}.toast.b{background:#1f6feb}.toast.r{background:#e74c3c}
+</style>
+</head>
+<body>
+
+<header class="hdr">
+  <h1>⚾ Com2uS 프로야구</h1>
+  <p>버그 신고 게시판 크롤러 · 터미널 불필요</p>
+  <span class="badge">Vercel Serverless · Standalone HTML</span>
+</header>
+
+<div class="wrap">
+
+  <!-- ── 좌: 설정 ── -->
+  <div>
+    <div class="card">
+      <div class="card-hd">🔧 설정</div>
+      <div class="card-bd">
+
+        <div class="field">
+          <label>🏢 카페 고유 ID</label>
+          <input type="text" id="i-cid" value="27851354">
+          <div class="hint">27851354=컴프야 · 26629727=컴프매</div>
+        </div>
+
+        <div class="field">
+          <label>📋 메뉴 ID</label>
+          <input type="text" id="i-menu" value="31">
+          <div class="hint">31/33=버그/제보 · 15/22=건의 · 0=전체</div>
+        </div>
+
+        <!-- 수집 방식 -->
+        <div class="field">
+          <label>📡 수집 방식</label>
+          <div class="mode-tabs">
+            <button class="mtab" data-m="1" onclick="setMode(1)">📄 최대 건수</button>
+            <button class="mtab on" data-m="2" onclick="setMode(2)">📅 날짜 기간</button>
+          </div>
+          <div class="mpanel" id="mp1">
+            <input type="number" id="i-max" value="50" min="1" max="200" placeholder="최대 건수">
+          </div>
+          <div class="mpanel on" id="mp2">
+            <div class="date-row">
+              <input type="text" id="i-start" placeholder="YYYY.MM.DD">
+              <span class="sep">~</span>
+              <input type="text" id="i-end" placeholder="YYYY.MM.DD">
+            </div>
+          </div>
+        </div>
+
+        <!-- 쿠키 입력 -->
+        <div class="ck-wrap">
+          <div class="ck-title" onclick="toggleCk()">
+            🍪 네이버 로그인 쿠키 <span id="ck-toggle-btn">▼ 입력 방법 보기</span>
+          </div>
+          <div class="ck-body" id="ck-body">
+            <div class="ck-step">
+              1. Chrome에서 <strong>cafe.naver.com</strong> 로그인<br>
+              2. <strong>F12</strong> → Application 탭 → Cookies → <code>https://cafe.naver.com</code><br>
+              3. 아래 두 값을 복사해서 붙여넣기
+            </div>
+            <div class="ck-row">
+              <label>NID_AUT</label>
+              <input type="text" id="ck-aut" placeholder="NID_AUT 값">
+            </div>
+            <div class="ck-row">
+              <label>NID_SES</label>
+              <input type="text" id="ck-ses" placeholder="NID_SES 값">
+            </div>
+            <div class="hint" style="margin-top:4px">쿠키 없이도 공개 게시글 목록은 수집 가능합니다.<br>회원 전용 게시판은 쿠키 필요.</div>
+          </div>
+        </div>
+
+        <button class="btn-start" id="btn-start" onclick="startCrawl()">🚀 크롤링 시작하기</button>
+
+        <div class="tip-box">
+          💡 Python·터미널 불필요 — 브라우저에서 직접 실행<br>
+          쿠키 입력 시 로그인 인증 게시판도 수집 가능
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 우: 로그 + 결과 ── -->
+  <div style="display:flex;flex-direction:column;gap:18px">
+
+    <!-- 터미널 로그 -->
+    <div class="card" style="overflow:hidden">
+      <div class="status-bar">
+        <div class="dot" id="dot"></div>
+        <span class="status-text" id="stext">대기 중</span>
+      </div>
+      <div class="prog-wrap"><div class="prog-bar" id="prog"></div></div>
+      <div class="terminal" id="term">
+        <div class="t-placeholder">🔍 크롤링을 시작하면<br>여기에 진행 상황이 표시됩니다</div>
+      </div>
+    </div>
+
+    <!-- 결과 -->
+    <div class="card">
+      <div class="card-hd">
+        <div class="res-hd" style="width:100%">
+          <span>📊 수집 결과 <span class="res-count" id="res-cnt"></span></span>
+          <div class="btn-grp">
+            <button class="btn-s btn-cp" id="btn-cp" onclick="doCopy()" disabled>📋 클립보드</button>
+            <button class="btn-s btn-xl" id="btn-xl" onclick="doExcel()" disabled>📥 엑셀</button>
+          </div>
+        </div>
+      </div>
+      <div class="card-bd" style="padding:0 14px 14px">
+        <div class="tbl-wrap" id="tbl-wrap">
+          <div class="empty-tbl">수집된 데이터가 없습니다</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ── 날짜 기본값 ── */
+(function(){
+  const f = d => `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
+  const t = new Date(), p = new Date(t); p.setDate(t.getDate()-7);
+  document.getElementById('i-start').value = f(p);
+  document.getElementById('i-end').value   = f(t);
+})();
+
+let mode = 2;
+function setMode(m){
+  mode = m;
+  document.querySelectorAll('.mtab').forEach(el=>el.classList.toggle('on',+el.dataset.m===m));
+  document.querySelectorAll('.mpanel').forEach(el=>el.classList.toggle('on',el.id===`mp${m}`));
+}
+
+function toggleCk(){
+  const b = document.getElementById('ck-body');
+  const t = document.getElementById('ck-toggle-btn');
+  const open = b.classList.toggle('open');
+  t.textContent = open ? '▲ 닫기' : '▼ 입력 방법 보기';
+}
+
+/* ── 로그 ── */
+let firstLog = true;
+function addLog(text, cls=''){
+  const term = document.getElementById('term');
+  if(firstLog){ term.innerHTML=''; firstLog=false; }
+  const d = document.createElement('div');
+  d.className = 'll' + (cls ? ' '+cls : '');
+  d.textContent = text;
+  term.appendChild(d);
+  term.scrollTop = term.scrollHeight;
+}
+
+function setStatus(state, text){
+  const dot = document.getElementById('dot');
+  dot.className = 'dot' + (state ? ' '+state : '');
+  document.getElementById('stext').textContent = text;
+}
+
+function setProgress(pct){
+  document.getElementById('prog').style.width = pct + '%';
+}
+
+/* ── 쿠키 조합 ── */
+function getCookie(){
+  const aut = document.getElementById('ck-aut').value.trim();
+  const ses = document.getElementById('ck-ses').value.trim();
+  const parts = [];
+  if(aut) parts.push(`NID_AUT=${aut}`);
+  if(ses) parts.push(`NID_SES=${ses}`);
+  return parts.join('; ');
+}
+
+/* ── 날짜 포맷 (YYYY-MM-DD) ── */
+function toApiDate(str){
+  const ns = str.replace(/\./g,'-').replace(/\//g,'-');
+  if(/^\d{4}-\d{2}-\d{2}$/.test(ns)) return ns;
+  const digits = str.replace(/\D/g,'');
+  if(digits.length===8) return `${digits.slice(0,4)}-${digits.slice(4,6)}-${digits.slice(6,8)}`;
+  return '';
+}
+
+/* ── delay ── */
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+/* ── 크롤링 메인 ── */
+let results = [];
+async function startCrawl(){
+  const cid  = document.getElementById('i-cid').value.trim();
+  const menu = document.getElementById('i-menu').value.trim();
+  if(!cid){ toast('⚠️ 카페 ID를 입력해주세요.','r'); return; }
+
+  results = [];
+  firstLog = true;
+  document.getElementById('tbl-wrap').innerHTML = '<div class="empty-tbl">수집 중...</div>';
+  document.getElementById('res-cnt').textContent = '';
+  document.getElementById('btn-cp').disabled = true;
+  document.getElementById('btn-xl').disabled = true;
+  document.getElementById('btn-start').disabled = true;
+  document.getElementById('btn-start').textContent = '⏳ 크롤링 중...';
+  setStatus('running','크롤링 진행 중...');
+  setProgress(0);
+
+  const cookie = getCookie();
+  const params = new URLSearchParams({ cafeId: cid, menuId: menu, display: '200', cookie });
+
+  if(mode === 2){
+    const df = toApiDate(document.getElementById('i-start').value);
+    const dt = toApiDate(document.getElementById('i-end').value);
+    if(df) params.set('dateFrom', df);
+    if(dt) params.set('dateTo',   dt);
+    addLog(`[INFO] 기간 모드: ${df} ~ ${dt}`, 'info');
+  } else {
+    params.set('display', document.getElementById('i-max').value || '50');
+    addLog(`[INFO] 건수 모드: 최대 ${params.get('display')}건`, 'info');
+  }
+
+  try {
+    // Step 1: 목록 수집
+    addLog('[INFO] 게시글 목록 수집 중...', 'info');
+    const listRes = await fetch(`/api/naver?${params}`);
+    if(!listRes.ok) throw new Error(`목록 API 오류: ${listRes.status}`);
+    const listData = await listRes.json();
+    const items = listData.items || [];
+
+    if(!items.length){
+      addLog('[WARN] 수집된 게시글 없음 (날짜 범위 또는 쿠키 확인)', 'warn');
+      setStatus('done','완료 · 0건');
+      setProgress(100);
+      done(0);
+      return;
+    }
+
+    addLog(`[SUCCESS] 목록 ${items.length}건 확인`, 'ok');
+
+    // Step 2: 각 게시글 본문 수집
+    const total = items.length;
+    for(let i=0; i<total; i++){
+      const art = items[i];
+      setProgress(Math.round((i/total)*100));
+      addLog(`[${i+1}/${total}] ${(art.title||'').slice(0,22)}...`, 'info');
+
+      let content = art.description || '';
+
+      if(art.link){
+        try{
+          const ckParam = cookie ? `&cookie=${encodeURIComponent(cookie)}` : '';
+          const artRes = await fetch(`/api/article?url=${encodeURIComponent(art.link)}${ckParam}`);
+          if(artRes.ok){
+            const artData = await artRes.json();
+            if(artData.content && artData.content.length > content.length)
+              content = artData.content;
+          }
+        }catch(e){
+          addLog(`  [에러] ${e.message.slice(0,40)}`, 'err');
+        }
+      }
+
+      results.push({
+        '작성일': (art.postdate || '').replace(/(\d{4})(\d{2})(\d{2})/,'$1.$2.$3'),
+        '제목': art.title || '',
+        '내용': content,
+        '링크': art.link || '',
+      });
+
+      if(content) addLog(`  [OK] ${content.length}자`, 'ok');
+      else         addLog(`  [실패] 본문 없음`, 'warn');
+
+      await sleep(600);  // Rate limit
+    }
+
+    setProgress(100);
+    addLog(`\n[RESULT] 총 ${results.length}건 수집 완료`, 'res');
+    setStatus('done', `완료 · ${results.length}건`);
+    renderTable(results);
+    toast(`✅ ${results.length}건 수집 완료!`, 'g');
+
+  } catch(e){
+    addLog(`[치명적 오류] ${e.message}`, 'err');
+    setStatus('error', '오류 발생');
+    toast('❌ ' + e.message, 'r');
+  } finally {
+    done(results.length);
+  }
+}
+
+function done(n){
+  document.getElementById('btn-start').disabled = false;
+  document.getElementById('btn-start').textContent = '🚀 크롤링 시작하기';
+  if(n > 0){
+    document.getElementById('btn-cp').disabled = false;
+    document.getElementById('btn-xl').disabled = false;
+  }
+}
+
+/* ── 결과 테이블 ── */
+function renderTable(data){
+  const wrap = document.getElementById('tbl-wrap');
+  document.getElementById('res-cnt').textContent = data.length ? `· ${data.length}건` : '';
+  if(!data.length){ wrap.innerHTML='<div class="empty-tbl">수집된 데이터가 없습니다</div>'; return; }
+
+  let html = `<table><thead><tr>
+    <th>작성일</th><th>제목</th><th>내용 요약</th><th>링크</th>
+  </tr></thead><tbody>`;
+  data.forEach(r=>{
+    const pre = (r['내용']||'').replace(/\n/g,' ').slice(0,120);
+    html += `<tr>
+      <td class="td-d">${esc(r['작성일'])}</td>
+      <td class="td-t">${esc(r['제목'])}</td>
+      <td class="td-c">${esc(pre)}</td>
+      <td class="td-l"><a href="${esc(r['링크'])}" target="_blank">바로가기→</a></td>
+    </tr>`;
+  });
+  wrap.innerHTML = html + '</tbody></table>';
+}
+
+/* ── 클립보드 ── */
+function doCopy(){
+  if(!results.length) return;
+  let txt = '작성일\t제목\t내용\t링크\n';
+  results.forEach(r=>{
+    const c = (r['내용']||'').replace(/\t/g,' ').replace(/\n/g,' ');
+    txt += `${r['작성일']}\t${r['제목']}\t${c}\t${r['링크']}\n`;
+  });
+  navigator.clipboard.writeText(txt)
+    .then(()=>toast('📋 클립보드에 복사되었습니다!','b'))
+    .catch(()=>toast('❌ 클립보드 실패','r'));
+}
+
+/* ── 엑셀 다운로드 ── */
+function doExcel(){
+  if(!results.length) return;
+  const ws = XLSX.utils.json_to_sheet(results);
+  ws['!cols'] = [{wch:12},{wch:40},{wch:60},{wch:50}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '버그신고');
+  const now = new Date();
+  const s = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+  XLSX.writeFile(wb, `상용이슈_자동화_${s}.xlsx`);
+  toast('📥 엑셀 다운로드 완료!','g');
+}
+
+/* ── 유틸 ── */
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function toast(msg,type='g'){
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.className=`toast ${type}`;
+  el.classList.add('show');
+  setTimeout(()=>el.classList.remove('show'),3000);
+}
+</script>
+</body>
+</html>
