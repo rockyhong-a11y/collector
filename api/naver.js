@@ -1,341 +1,278 @@
-// Naver Cafe 수집 — apis.naver.com 내부 JSON API (v7)
+// Naver Cafe 수집 v8 — f-e Next.js SSR 파싱
 //
 // 수집 흐름:
-//   1순위: apis.naver.com/cafe-web/cafe2/ArticleListV2.json  (JSON, 공개 카페 무인증)
-//   2순위: cafe.naver.com/ca-fe/cafes/{id}/menus/{menuId}/articles (JSON)
-//   3순위: cafe.naver.com/ArticleList.nhn HTML 파싱
+//   1순위: f-e URL __NEXT_DATA__ JSON 파싱
+//   2순위: f-e URL HTML article 링크 파싱
 //
 // 파라미터:
-//   cafeId    — 카페 숫자 ID (27851354 / 28683505)
-//   menuId    — 메뉴 ID (0=전체, 31=버그신고, 33=제보, 15/22=건의)
-//   naverId   — 네이버 아이디 (비공개 카페 접근 시)
-//   naverPw   — 네이버 비밀번호 (비공개 카페 접근 시)
+//   cafeId   — 카페 숫자 ID
+//   menuId   — 메뉴 ID (0=전체)
+//   display  — 한 번에 반환할 최대 건수 (기본 100)
+//   start    — 시작 인덱스 (1, 101, 201 … 클라이언트 페이지네이션)
 //   dateFrom, dateTo — YYYY-MM-DD (빈 값이면 날짜 필터 없음)
-//   start     — 시작 인덱스 (페이지네이션)
 
-// crypto는 동적 import — Vercel 번들러 호환성
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-const PER_PAGE = 50;
-const MAX_PAGES = 20; // 최대 1000건
+const EXCLUDE_KEYWORDS = ['[안내]', '[이벤트]', '필독', '[공지]', 'CM', 'GM'];
 
 const CAFE_SLUGS = {
   '27851354': 'com2usbaseball2015',
   '28683505': 'mlb9innings',
 };
 
-function pad2(n) { return String(n).padStart(2, '0'); }
+// Naver f-e 페이지당 기본 20건 → display=100 이면 5페이지 fetch
+const NAVER_FE_PAGE_SIZE = 20;
 
-function todayKR() {
+function todayKST() {
   const now = new Date();
   const kst = new Date(now.getTime() + (9 * 60 - now.getTimezoneOffset()) * 60000);
   return kst.toISOString().slice(0, 10);
 }
 
-function shiftDate(baseISO, days) {
-  const d = new Date(baseISO + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
+// HH:MM → today / YY.MM.DD → 20YY-MM-DD / YYYY.MM.DD → YYYY-MM-DD / 타임스탬프
 function parseDateText(text, today) {
   if (!text) return null;
   text = String(text).trim();
-  if (text === '오늘') return today;
-  if (text === '어제') return shiftDate(today, -1);
-  if (text === '그저께') return shiftDate(today, -2);
-  let m = text.match(/(\d+)\s*시간\s*전/);
-  if (m) return new Date(Date.now() - parseInt(m[1]) * 3600000).toISOString().slice(0, 10);
-  m = text.match(/(\d+)\s*[분초]\s*전/);
-  if (m) return today;
-  m = text.match(/(\d+)\s*일\s*전/);
-  if (m) return shiftDate(today, -parseInt(m[1]));
-  m = text.match(/(20\d{2})[.\-](\d{1,2})[.\-](\d{1,2})/);
-  if (m) return `${m[1]}-${pad2(m[2])}-${pad2(m[3])}`;
-  m = text.match(/(20\d{2})(\d{2})(\d{2})/);
-  if (m && m[2] <= '12' && m[3] <= '31') return `${m[1]}-${m[2]}-${m[3]}`;
+  if (/^\d{1,2}:\d{2}$/.test(text)) return today;
+  let m = text.match(/^(20\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2})$/);
+  if (m) return `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
+  m = text.match(/^(\d{2})[.\-/](\d{2})[.\-/](\d{2})$/);
+  if (m) return `20${m[1]}-${m[2]}-${m[3]}`;
   const ts = parseInt(text);
-  if (!isNaN(ts) && ts > 1_000_000_000_000) return new Date(ts).toISOString().slice(0, 10);
-  if (!isNaN(ts) && ts > 1_000_000_000)     return new Date(ts * 1000).toISOString().slice(0, 10);
+  if (!isNaN(ts) && ts > 1e12) return new Date(ts).toISOString().slice(0, 10);
+  if (!isNaN(ts) && ts > 1e9)  return new Date(ts * 1000).toISOString().slice(0, 10);
   return null;
 }
 
-function extractDate(art, today) {
-  for (const c of [art.writeDateTimestamp, art.writeDate, art.regDate, art.createdAt, art.publishedAt, art.lastUpdateDate]) {
-    const d = parseDateText(c, today);
-    if (d) return d;
-  }
-  return null;
+function shouldExclude(title) {
+  return EXCLUDE_KEYWORDS.some(k => title.includes(k));
 }
 
-// ArticleList.nhn HTML 파싱
-function extractFromHtml(html, today, cafeId) {
-  const items = [];
-  const seen = new Set();
-  const slug = CAFE_SLUGS[String(cafeId)] || '';
-  const datePat = /(\d+\s*(?:시간|분|일|초)\s*전|어제|그저께|오늘|20\d{2}[.\-]\d{1,2}[.\-]\d{1,2})/;
-  const absRe = /https?:\/\/cafe\.naver\.com\/([A-Za-z0-9_]+)\/(\d{5,})/g;
-  const relRe = /href="\/([A-Za-z0-9_]+)\/(\d{5,})"/g;
-
-  function tryAdd(cafe, aid, idx) {
-    if (slug && cafe !== slug) return;
-    const key = `${cafe}/${aid}`;
-    if (seen.has(key)) return;
-    const before = html.slice(Math.max(0, idx - 1500), idx);
-    const after  = html.slice(idx, idx + 1500);
-    const dm = after.match(datePat) || before.match(datePat);
-    if (!dm) return;
-    const date = parseDateText(dm[1], today);
-    if (!date) return;
-    const win = html.slice(idx, idx + 800)
-      .replace(/<script[\s\S]*?<\/script>/g, '').replace(/<style[\s\S]*?<\/style>/g, '')
-      .replace(/<[^>]+>/g, '|').replace(/\|+/g, '|');
-    const texts = win.split('|').map(s => s.trim()).filter(s => s.length >= 4);
-    const title = texts.find(t => !/^(?:추천|댓글|조회|신고|더보기|\d+)$/.test(t)) || '';
-    seen.add(key);
-    items.push({ title, link: `https://cafe.naver.com/${cafe}/${aid}`, description: title, _date: date, postdate: date.replace(/-/g, '') });
-  }
-
-  let m;
-  while ((m = absRe.exec(html)) !== null) tryAdd(m[1], m[2], m.index);
-  while ((m = relRe.exec(html)) !== null) tryAdd(m[1], m[2], m.index);
-  return items;
+function stripHtml(html) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-// ── Naver RSA 로그인 ──────────────────────────────────────────────
-
-function buildRSAKey(nHex, eHex, createPublicKeyFn) {
-  const n = Buffer.from(nHex, 'hex');
-  const e = Buffer.from(eHex, 'hex');
-  const nPos = (n[0] & 0x80) ? Buffer.concat([Buffer.from([0x00]), n]) : n;
-  const ePos = (e[0] & 0x80) ? Buffer.concat([Buffer.from([0x00]), e]) : e;
-
-  function tlv(tag, val) {
-    const len = val.length;
-    const lenBuf = len < 0x80  ? Buffer.from([len])
-                 : len < 0x100 ? Buffer.from([0x81, len])
-                 : Buffer.from([0x82, (len >> 8) & 0xff, len & 0xff]);
-    return Buffer.concat([Buffer.from([tag]), lenBuf, val]);
-  }
-
-  const rsaPubKey = tlv(0x30, Buffer.concat([tlv(0x02, nPos), tlv(0x02, ePos)]));
-  const algId = Buffer.from('300d06092a864886f70d0101010500', 'hex');
-  const bitStr = tlv(0x03, Buffer.concat([Buffer.from([0x00]), rsaPubKey]));
-  return createPublicKeyFn({ key: tlv(0x30, Buffer.concat([algId, bitStr])), format: 'der', type: 'spki' });
+// Next.js SSR __NEXT_DATA__ 추출
+function extractNextData(html) {
+  const m = html.match(/<script[^>]*id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+  if (!m) return null;
+  try { return JSON.parse(m[1]); } catch { return null; }
 }
 
-function parseCookieHeader(raw) {
-  const cookies = {};
-  if (!raw) return cookies;
-  for (const part of raw.split(/,(?=[A-Za-z_])/)) {
-    const eq = part.indexOf('=');
-    if (eq < 0) continue;
-    const k = part.slice(0, eq).trim();
-    const v = part.slice(eq + 1).split(';')[0].trim();
-    if (k) cookies[k] = v;
-  }
-  return cookies;
-}
-
-function cookieStr(obj) { return Object.entries(obj).map(([k, v]) => `${k}=${v}`).join('; '); }
-
-async function naverLogin(naverId, naverPw) {
-  try {
-    // 동적 import — 번들러가 정적 분석하지 않도록
-    const { createPublicKey, publicEncrypt, constants } = await import('node:crypto').catch(() => import('crypto'));
-
-    const keysRes = await fetch('https://nid.naver.com/login/ext/keys.nhn', {
-      headers: { 'User-Agent': UA, 'Referer': 'https://nid.naver.com/nidlogin.login' },
-    });
-    if (!keysRes.ok) return null;
-    const [sessionkey, keyname, eHex, nHex] = (await keysRes.text()).trim().split(',');
-    if (!sessionkey || !keyname || !eHex || !nHex) return null;
-
-    // 암호화 평문: sessionkey + \0 + chr(idLen) + id + chr(pwLen) + pw
-    const plain = Buffer.concat([
-      Buffer.from(sessionkey, 'ascii'),
-      Buffer.from([0x00]),
-      Buffer.from([naverId.length]),
-      Buffer.from(naverId, 'utf8'),
-      Buffer.from([naverPw.length]),
-      Buffer.from(naverPw, 'utf8'),
-    ]);
-
-    const pubKey = buildRSAKey(nHex, eHex, createPublicKey);
-    const encpw = publicEncrypt({ key: pubKey, padding: constants.RSA_PKCS1_PADDING }, plain).toString('hex');
-
-    // 로그인 폼 페이지 쿠키 수집
-    const pageRes = await fetch('https://nid.naver.com/nidlogin.login', { headers: { 'User-Agent': UA } });
-    const pageCookies = parseCookieHeader(pageRes.headers.get('set-cookie') || '');
-
-    // POST 로그인
-    const loginRes = await fetch('https://nid.naver.com/nidlogin.login', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': UA,
-        'Referer': 'https://nid.naver.com/nidlogin.login',
-        'Cookie': cookieStr(pageCookies),
-      },
-      body: new URLSearchParams({ enctp: '1', encpw, encnm: keyname, svctype: '0', url: 'https://www.naver.com', locale: 'ko_KR', id: '', pw: '' }).toString(),
-      redirect: 'manual',
-    });
-
-    const loginCookies = parseCookieHeader(loginRes.headers.get('set-cookie') || '');
-    const all = { ...pageCookies, ...loginCookies };
-
-    return (all.NID_AUT || all.NID_JKL || all.NID_SES) ? cookieStr(all) : null;
-  } catch {
+// __NEXT_DATA__ 내 게시글 배열 재귀 탐색
+function findArticleList(obj, depth = 0) {
+  if (depth > 10 || !obj || typeof obj !== 'object') return null;
+  if (Array.isArray(obj)) {
+    if (obj.length > 0 && obj[0] && (obj[0].articleId || obj[0].id) &&
+        (obj[0].subject || obj[0].title)) return obj;
+    for (const item of obj) {
+      const found = findArticleList(item, depth + 1);
+      if (found) return found;
+    }
     return null;
   }
+  for (const key of ['articleList', 'articles', 'list', 'items', 'data', 'result', 'pageProps']) {
+    if (obj[key]) {
+      const found = findArticleList(obj[key], depth + 1);
+      if (found) return found;
+    }
+  }
+  for (const val of Object.values(obj)) {
+    if (typeof val === 'object') {
+      const found = findArticleList(val, depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
 }
 
-const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+async function fetchNaverPage(cafeId, menuId, page, sessionCookie) {
+  const mid = parseInt(menuId) || 0;
+  const url = `https://cafe.naver.com/f-e/cafes/${cafeId}/menus/${mid}?page=${page}`;
+  const headers = {
+    'User-Agent': UA,
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8',
+    'Cache-Control': 'no-cache',
+    'Referer': 'https://cafe.naver.com/',
+  };
+  if (sessionCookie) headers['Cookie'] = sessionCookie;
+  const res = await fetch(url, { headers });
+  const html = await res.text();
+  return { ok: res.ok, status: res.status, html, url };
+}
 
-async function fetchCafeArticles(cafeId, menuId, dateFrom, dateTo, startPage, sessionCookie) {
-  const today = todayKR();
-  const all   = [];
-  const seen  = new Set();
-  const debug = { firstStatus: null, firstError: null, firstHtmlSize: 0, firstCardCount: null, firstSnippet: '', method: null, login: !!sessionCookie };
-  const slug  = CAFE_SLUGS[String(cafeId)] || String(cafeId);
+// 한 Naver 페이지 HTML에서 게시글 추출
+function parseArticlesFromPage(html, slug, today) {
+  const items = [];
 
-  const authHeaders = sessionCookie ? { 'Cookie': sessionCookie } : {};
-
-  function consume(arts, slugFn) {
-    let hitOld = false;
-    for (const art of arts) {
-      const date = extractDate(art, today);
-      if (!date) continue;
-      if (dateFrom && date < dateFrom) { hitOld = true; continue; }
-      if (dateTo   && date > dateTo)   continue;
-      const artId   = art.articleId || art.id || '';
-      const artSlug = slugFn(art);
-      const link    = artId ? `https://cafe.naver.com/${artSlug}/${artId}` : '';
-      if (!link || seen.has(link)) continue;
-      seen.add(link);
-      all.push({ title: art.subject || art.title || '', link, description: art.contentSummary || art.summary || '', _date: date, postdate: date.replace(/-/g, '') });
-    }
-    return hitOld;
-  }
-
-  // ── 방법 1: apis.naver.com ArticleListV2 ─────────────────────
-  debug.method = 'apis-articlelistv2';
-  let failed1 = false;
-
-  for (let i = 0; i < MAX_PAGES; i++) {
-    const p = new URLSearchParams({ cafeId, menuId: menuId || 0, currentPage: startPage + i, pageSize: PER_PAGE, orderBy: 'CreateDate' });
-    const url = `https://apis.naver.com/cafe-web/cafe2/ArticleListV2.json?${p}`;
-    let data;
-    try {
-      const r = await fetch(url, { headers: { 'User-Agent': UA, 'Accept': 'application/json,*/*', 'Accept-Language': 'ko-KR,ko;q=0.9', 'Referer': `https://cafe.naver.com/${slug}`, 'Origin': 'https://cafe.naver.com', ...authHeaders } });
-      if (i === 0) debug.firstStatus = r.status;
-      if (!r.ok) { if (i === 0) debug.firstError = `apis HTTP ${r.status}`; failed1 = true; break; }
-      if (!(r.headers.get('content-type') || '').includes('json')) {
-        const html = await r.text();
-        if (i === 0) { debug.firstHtmlSize = html.length; debug.firstError = `apis non-JSON (${html.length}B)`; debug.firstSnippet = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200); }
-        failed1 = true; break;
+  // 방법 1: __NEXT_DATA__ JSON
+  const nextData = extractNextData(html);
+  if (nextData) {
+    const arts = findArticleList(nextData?.props?.pageProps) || findArticleList(nextData);
+    if (arts && arts.length > 0) {
+      for (const art of arts) {
+        const artId = String(art.articleId || art.id || '').trim();
+        const title = String(art.subject || art.title || '').trim();
+        if (!artId || !title || shouldExclude(title)) continue;
+        const dateRaw = art.writeDateTimestamp || art.writeDate || art.lastUpdateDate || art.regDate || art.createdAt || '';
+        const date = parseDateText(String(dateRaw), today);
+        items.push({
+          title,
+          link: `https://cafe.naver.com/${slug}/${artId}`,
+          description: String(art.contentSummary || art.summary || '').replace(/<[^>]+>/g, ' ').trim(),
+          _date: date || today,
+          postdate: (date || today).replace(/-/g, ''),
+          _method: 'next-data',
+        });
       }
-      data = await r.json();
-    } catch (e) { if (i === 0) debug.firstError = `apis: ${e.message}`; failed1 = true; break; }
-
-    const arts = data?.message?.result?.articleList || data?.result?.articleList || data?.articleList || data?.articles || (Array.isArray(data) ? data : []);
-    if (i === 0) { debug.firstCardCount = arts.length; if (!arts.length) debug.firstSnippet = JSON.stringify(data).slice(0, 300); }
-    if (!arts.length) break;
-    if (consume(arts, a => a.cafeUrl || slug) || arts.length < PER_PAGE) break;
-  }
-
-  if (all.length > 0 || !failed1) return { items: all, debug };
-
-  // ── 방법 2: ca-fe JSON API ────────────────────────────────────
-  debug.method = 'ca-fe-json';
-  const err1 = debug.firstError;
-  debug.firstError = null;
-  let failed2 = false;
-
-  for (let i = 0; i < MAX_PAGES; i++) {
-    const mp  = menuId ? `/menus/${menuId}` : '';
-    const url = `https://cafe.naver.com/ca-fe/cafes/${encodeURIComponent(cafeId)}${mp}/articles?page=${startPage + i}&perPage=${PER_PAGE}&orderBy=date`;
-    let data;
-    try {
-      const r = await fetch(url, { headers: { 'User-Agent': UA, 'Accept': 'application/json,*/*', 'Accept-Language': 'ko-KR,ko;q=0.9', 'Referer': `https://cafe.naver.com/${slug}`, ...authHeaders } });
-      if (i === 0) debug.firstStatus = r.status;
-      if (!r.ok) { if (i === 0) debug.firstError = `ca-fe HTTP ${r.status} (apis: ${err1})`; failed2 = true; break; }
-      if (!(r.headers.get('content-type') || '').includes('json')) {
-        const html = await r.text();
-        if (i === 0) { debug.firstError = `ca-fe non-JSON ${html.length}B`; debug.firstSnippet = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200); }
-        failed2 = true; break;
-      }
-      data = await r.json();
-    } catch (e) { if (i === 0) debug.firstError = `ca-fe: ${e.message}`; failed2 = true; break; }
-
-    const arts = data?.result?.articleList || data?.articles || (Array.isArray(data) ? data : []);
-    if (i === 0) { debug.firstCardCount = arts.length; if (!arts.length) debug.firstSnippet = JSON.stringify(data).slice(0, 300); }
-    if (!arts.length) break;
-    if (consume(arts, a => a.cafeUrl || slug) || arts.length < PER_PAGE) break;
-  }
-
-  if (all.length > 0 || !failed2) return { items: all, debug };
-
-  // ── 방법 3: ArticleList.nhn HTML ─────────────────────────────
-  debug.method = 'html-articlelist';
-  const err2 = debug.firstError;
-  debug.firstError = null;
-
-  for (let i = 0; i < MAX_PAGES; i++) {
-    const p = new URLSearchParams({ 'search.clubid': cafeId, 'search.sortby': 'date', 'search.page': startPage + i, 'search.perPage': PER_PAGE });
-    if (menuId) p.set('search.menuid', menuId);
-    const url = `https://cafe.naver.com/ArticleList.nhn?${p}`;
-    let html;
-    try {
-      const r = await fetch(url, { headers: { 'User-Agent': UA, 'Accept': 'text/html,*/*', 'Accept-Language': 'ko-KR,ko;q=0.9', 'Referer': `https://cafe.naver.com/${slug}`, ...authHeaders } });
-      if (i === 0) debug.firstStatus = r.status;
-      if (!r.ok) { if (i === 0) debug.firstError = `HTML HTTP ${r.status} (ca-fe: ${err2})`; break; }
-      html = await r.text();
-    } catch (e) { if (i === 0) debug.firstError = `HTML: ${e.message}`; break; }
-
-    const items = extractFromHtml(html, today, cafeId);
-    if (i === 0) {
-      debug.firstHtmlSize  = html.length;
-      debug.firstCardCount = items.length;
-      if (!items.length) debug.firstSnippet = html.replace(/<script[\s\S]*?<\/script>/g, '').replace(/<style[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+      return items;
     }
-    let hitOld = false;
-    for (const it of items) {
-      if (seen.has(it.link)) continue;
-      seen.add(it.link);
-      if (dateFrom && it._date < dateFrom) { hitOld = true; continue; }
-      if (dateTo   && it._date > dateTo)   continue;
-      all.push(it);
-    }
-    if (hitOld || !items.length || items.length < PER_PAGE) break;
   }
 
-  return { items: all, debug };
+  // 방법 2: HTML article 링크 파싱
+  const artRe = new RegExp(`href="(?:https://cafe\\.naver\\.com)?/${slug}/(\\d{5,})"`, 'g');
+  const seen = new Set();
+  let m;
+  while ((m = artRe.exec(html)) !== null) {
+    const artId = m[1];
+    if (seen.has(artId)) continue;
+    seen.add(artId);
+
+    const idx = m.index;
+    const before = html.slice(Math.max(0, idx - 600), idx);
+    const after  = html.slice(idx, idx + 600);
+    const ctx    = before + after;
+
+    // 날짜 추출: HH:MM / YY.MM.DD / YYYY.MM.DD
+    const dateM = ctx.match(/(\d{1,2}:\d{2}|20\d{2}\.\d{2}\.\d{2}|\d{2}\.\d{2}\.\d{2})/);
+    const date = dateM ? parseDateText(dateM[1], today) : null;
+
+    // 제목 추출: article/tit/title 클래스명 근처 텍스트
+    const titleM = ctx.match(/class="[^"]*(?:article|tit|title|subject)[^"]*"[^>]*>(?:<[^>]+>)*([^<]{4,120})/);
+    const title = titleM ? titleM[1].trim() : '';
+    if (!title || shouldExclude(title)) continue;
+
+    items.push({
+      title,
+      link: `https://cafe.naver.com/${slug}/${artId}`,
+      description: '',
+      _date: date || today,
+      postdate: (date || today).replace(/-/g, ''),
+      _method: 'html-parse',
+    });
+  }
+  return items;
 }
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
-  const { keyword = '', cafeId = '', menuId = '0', naverId = '', naverPw = '', dateFrom = '', dateTo = '', start = '1' } = req.query;
+  const {
+    keyword  = '',
+    cafeId   = '',
+    menuId   = '0',
+    display  = '100',
+    start    = '1',
+    dateFrom = '',
+    dateTo   = '',
+  } = req.query;
 
-  if (keyword === 'ping') return res.status(200).json({ pong: true, _version: 'v7-apis-login' });
+  if (keyword === 'ping') return res.status(200).json({ pong: true, _version: 'v8-fe-ssr' });
   if (!cafeId) return res.status(400).json({ error: 'cafeId 필요' });
 
-  const startPage = Math.max(1, Math.ceil((parseInt(start) || 1) / PER_PAGE));
-  const menuIdNum = parseInt(menuId) || 0;
+  const today      = todayKST();
+  const slug       = CAFE_SLUGS[String(cafeId)] || String(cafeId);
+  const maxItems   = Math.min(200, parseInt(display) || 100);
+  const startIdx   = Math.max(1, parseInt(start) || 1);
 
-  // 네이버 로그인 시도 (자격증명 있을 때)
-  let sessionCookie = null;
-  let loginResult = 'no-credentials';
-  if (naverId && naverPw) {
-    sessionCookie = await naverLogin(naverId, naverPw);
-    loginResult = sessionCookie ? 'login-ok' : 'login-failed';
+  // start 인덱스 → Naver 시작 페이지
+  // start=1   → page=1, start=101 → page=6 (NAVER_FE_PAGE_SIZE=20 기준)
+  const batch          = Math.floor((startIdx - 1) / maxItems);
+  const pagesPerBatch  = Math.ceil(maxItems / NAVER_FE_PAGE_SIZE);
+  const startNaverPage = batch * pagesPerBatch + 1;
+
+  const debug = {
+    firstStatus: null, firstError: null, htmlSize: 0,
+    firstCardCount: null, firstSnippet: '', method: null, pages: 0,
+  };
+
+  const allItems = [];
+  const seen     = new Set();
+
+  for (let p = startNaverPage; p < startNaverPage + pagesPerBatch; p++) {
+    let result;
+    try {
+      result = await fetchNaverPage(cafeId, menuId, p, null);
+    } catch (e) {
+      if (p === startNaverPage) debug.firstError = `fetch: ${e.message}`;
+      break;
+    }
+
+    debug.pages++;
+    if (p === startNaverPage) {
+      debug.firstStatus = result.status;
+      debug.htmlSize    = result.html.length;
+    }
+
+    if (!result.ok) {
+      if (p === startNaverPage) debug.firstError = `HTTP ${result.status}`;
+      break;
+    }
+
+    const pageItems = parseArticlesFromPage(result.html, slug, today);
+
+    if (p === startNaverPage) {
+      debug.firstCardCount = pageItems.length;
+      debug.method         = pageItems[0]?._method || 'none';
+      if (!pageItems.length) {
+        debug.firstSnippet = result.html
+          .replace(/<script[\s\S]*?<\/script>/gi, '')
+          .replace(/<style[\s\S]*?<\/style>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 300);
+      }
+    }
+
+    if (!pageItems.length) break;
+
+    let hitOld = false;
+    for (const item of pageItems) {
+      if (seen.has(item.link)) continue;
+      seen.add(item.link);
+
+      if (dateFrom && item._date < dateFrom) { hitOld = true; continue; }
+      if (dateTo   && item._date > dateTo)   continue;
+      if (allItems.length >= maxItems) break;
+
+      const { _method, ...rest } = item;
+      allItems.push(rest);
+    }
+
+    if (hitOld || allItems.length >= maxItems) break;
   }
 
-  try {
-    const { items, debug } = await fetchCafeArticles(cafeId, menuIdNum, dateFrom, dateTo, startPage, sessionCookie);
-    debug.loginResult = loginResult;
-    res.status(200).json({ items, _rawCount: items.length, _anchors: items.length, _interpolated: 0, _noInfo: 0, _source: `cafe.naver.com(${debug.method})`, _version: 'v7-apis-login', _debug: debug });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  return res.status(200).json({
+    items:          allItems,
+    _rawCount:      allItems.length,
+    _anchors:       allItems.length,
+    _interpolated:  0,
+    _noInfo:        0,
+    _source:        'cafe.naver.com(f-e-ssr)',
+    _version:       'v8-fe-ssr',
+    _debug:         debug,
+  });
 }
