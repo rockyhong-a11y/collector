@@ -18,7 +18,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const { url, referer, cookie } = req.query;
+  const { url, referer } = req.query;
   if (!url) return res.status(400).json({ error: 'url query required' });
 
   try {
@@ -27,8 +27,10 @@ export default async function handler(req, res) {
       'Accept': 'application/json, text/html, */*;q=0.9',
       'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
     };
-    if (referer) headers['Referer'] = referer;
-    if (cookie)  headers['Cookie']  = cookie;
+    if (referer) {
+      headers['Referer'] = referer;
+      try { const u = new URL(referer); headers['Origin'] = u.origin; } catch {}
+    }
 
     const opts = { method: req.method, headers };
 
