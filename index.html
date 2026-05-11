@@ -223,9 +223,9 @@ tbody tr:hover td{background:#1c2128}
           <input type="checkbox" value="dc_cpb26">
           <div class="site-label"><strong>DC인사이드</strong><small>mgallery · com2usbaseball</small></div>
         </label>
-        <label class="site-item">
-          <input type="checkbox" value="naver_cpb26">
-          <div class="site-label"><strong>네이버카페</strong><small>API 자동 수집 · cafeid:27851354</small></div>
+        <label class="site-item" style="opacity:.4;cursor:not-allowed">
+          <input type="checkbox" value="naver_cpb26" disabled>
+          <div class="site-label"><strong>네이버카페</strong><small>준비 중 · cafeid:27851354</small></div>
         </label>
       </div>
 
@@ -236,9 +236,9 @@ tbody tr:hover td{background:#1c2128}
           <input type="checkbox" value="dc_9innings">
           <div class="site-label"><strong>DC인사이드</strong><small>mgallery · mlbgame</small></div>
         </label>
-        <label class="site-item">
-          <input type="checkbox" value="naver_9innings">
-          <div class="site-label"><strong>네이버카페</strong><small>API 자동 수집 · cafeid:28683505</small></div>
+        <label class="site-item" style="opacity:.4;cursor:not-allowed">
+          <input type="checkbox" value="naver_9innings" disabled>
+          <div class="site-label"><strong>네이버카페</strong><small>준비 중 · cafeid:28683505</small></div>
         </label>
       </div>
 
@@ -713,7 +713,7 @@ async function scrapeDcinside(siteKey, dateFrom, dateTo, log, userKeywords=[]) {
         if (seenUrls.has(postUrl)) continue; // 키워드별 중복 제거
         seenUrls.add(postUrl);
 
-        const titleM = row.match(new RegExp(urlM[1].replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '"[^>]*view-msg[^>]*>([\\s\\S]*?)<\\/a>')) ||
+        const titleM = row.match(new RegExp(urlM[1].replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '"[^>]*view-msg[^>]*>([\\s\\S]*?)<\/a>')) ||
                        row.match(/gall_tit[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/);
         const title = titleM ? esc(stripTags(titleM[1])).replace(/\[.*?\]/g,'').trim() : '';
         if (!title) continue;
@@ -851,7 +851,7 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log, userKeywords=[]) {
       pageCount++;
       if (wantDetail && !titleMatch) await sleep(80);
     }
-    log(`  페이지 ${page} → 수집 ${pageCount}건${kwSkip?` · 키워드 미스 ${kwSkip}`:''}, 최소날짜=${oldestDate}`);
+    log(`  페이지 ${page} → 수집 ${pageCount}건${kwSkip?` · 키워드 미스 ${kwSkip}`:''},  최소날짜=${oldestDate}`);
     if (oldestDate !== '9999' && oldestDate < dateFrom) break;
     if (items.length < 20) break;
     await sleep(500);
@@ -969,7 +969,7 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log, userKeywords=[]) {
       pageCount++;
       if (wantDetail && !titleMatch && !comments) await sleep(80);
     }
-    log(`  페이지 ${page} → 수집 ${pageCount}건${kwSkip?` · 키워드 미스 ${kwSkip}`:''}, 최소날짜=${oldestDate}`);
+    log(`  페이지 ${page} → 수집 ${pageCount}건${kwSkip?` · 키워드 미스 ${kwSkip}`:''},  최소날짜=${oldestDate}`);
     if (oldestDate !== '9999' && oldestDate < dateFrom) break;
     if (items.length < 20) break;
     await sleep(500);
@@ -1246,7 +1246,7 @@ function addLog(msg, type='') {
   const ts  = new Date().toLocaleTimeString('ko-KR',{hour12:false});
   const el  = document.createElement('div');
   el.className = 'log-line';
-  el.innerHTML = `<span class="log-time">${ts}</span><span class="log-msg${type?' '+type:''}">${escHtml(msg)}</span>`;
+  el.innerHTML = `<span class="log-time">${ts}</span><span class="log-msg${type?' '+type:''}">` + escHtml(msg) + '</span>';
   box.appendChild(el);
   box.scrollTop = box.scrollHeight;
 }
@@ -1282,30 +1282,7 @@ document.getElementById('btnStart').addEventListener('click', async () => {
   btnStart.disabled = true;
   btnStart.innerHTML = '<span class="spin"></span><span>수집 중...</span>';
 
-  // 시작 시 백엔드 도달 진단 — /cafe(별칭)와 /api/naver(직접) 두 경로 모두 ping
-  // 두 경로 모두 실패할 때만 차단기 안내 메시지 표시
-  setTimeout(async () => {
-    let okCount = 0;
-    for (const apiPath of ['/cafe', '/api/naver']) {
-      try {
-        const ctrl = new AbortController();
-        const tid = setTimeout(() => ctrl.abort(), 5000);
-        const t0 = Date.now();
-        const r = await fetch(`${apiPath}?keyword=ping&display=1`, {
-          signal: ctrl.signal, cache: 'no-store', credentials: 'omit'
-        });
-        clearTimeout(tid);
-        const ms = Date.now() - t0;
-        addLog(`[진단] ${apiPath} 응답 HTTP ${r.status} (${ms}ms) — 도달 OK`, 'info');
-        if (r.ok) okCount++;
-      } catch(e) {
-        addLog(`[진단] ${apiPath} 도달 실패 [${e.name||'Error'}]: ${e.message}`, 'err');
-      }
-    }
-    if (okCount === 0) {
-      addLog(`[진단] 두 경로 모두 실패 — 사파리 콘텐츠 차단기/확장 비활성화 또는 시크릿 창에서 시도 권장`, 'err');
-    }
-  }, 100);
+  // 네이버 카페 수집 비활성화로 인해 진단 ping 제거
 
   document.getElementById('progressSection').style.display = 'block';
   document.getElementById('resultsSection').style.display  = 'none';
@@ -1466,11 +1443,11 @@ function showResults(results) {
     return `<tr>
       <td style="text-align:center;color:#484f58;width:36px">${i+1}</td>
       <td><span class="game-chip game-${game}">${game}</span></td>
-      <td><a href="${escHtml(r.url||'')}" target="_blank" rel="noopener">${escHtml(r.title||'')}</a></td>
-      <td><span class="tag tag-${catKey}">${escHtml(r.category||'')}</span></td>
+      <td><a href="` + escHtml(r.url||'') + `" target="_blank" rel="noopener">` + escHtml(r.title||'') + `</a></td>
+      <td><span class="tag tag-${catKey}">` + escHtml(r.category||'') + `</span></td>
       <td><span class="sev sev-${sev}">${sev}</span></td>
-      <td style="font-size:11px;color:#6e7681;white-space:nowrap">${escHtml(r.source||'')}</td>
-      <td style="font-size:11px;color:#6e7681;white-space:nowrap">${escHtml(r.date||'')}</td>
+      <td style="font-size:11px;color:#6e7681;white-space:nowrap">` + escHtml(r.source||'') + `</td>
+      <td style="font-size:11px;color:#6e7681;white-space:nowrap">` + escHtml(r.date||'') + `</td>
     </tr>`;
   }).join('');
 
