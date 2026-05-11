@@ -325,8 +325,8 @@ tbody tr:hover td{background:#1c2128}
   <div class="card">
     <div class="card-title">🔍 검색어 (선택)</div>
     <div class="field">
-      <label class="field-label">키워드 — 쉼표/공백 구분 &nbsp;·&nbsp; <b>DC·공식커뮤</b>: 입력 시 제목·본문·댓글 검색 / 미입력 시 버그·의견 strict &nbsp;·&nbsp; <b>네이버 카페</b>: 키워드 무시 (항상 전체글)</label>
-      <input type="text" id="keywords" placeholder="예: 버그, 크래시, 결제 오류, 업데이트">
+      <label class="field-label">키워드 — 쉼표/공백 구분 &nbsp;·&nbsp; 전체 게시글 수집 후 제목 필터 (미입력 시 전체 표시) &nbsp;·&nbsp; 카테고리는 자동 분류</label>
+      <input type="text" id="keywords" placeholder="예: 버그, 크래시, 결제 오류 (미입력 시 전체 수집)">
     </div>
   </div>
 
@@ -531,7 +531,7 @@ async function proxyPost(url, body, extraHeaders={}, timeout=10000) {
 //  CLASSIFIERS
 // ═══════════════════════════════════════════════════════════════
 
-// ── 버그/이슈 키워드 ─────────────────────────────────────────
+// ── 버그/이슈 키워드 (Jira [시스템]/[UI]/[인게임] 패턴 반영) ─────
 const BUG_KW = [
   '버그','오류','에러','error','bug','이슈','issue',
   '크래시','crash','강종','강제종료','팅김','튕김','튕겨','팅겨',
@@ -542,14 +542,17 @@ const BUG_KW = [
   '접속 불가','접속이 안','접속안','로그인 불가','로그인 안','연결 안','연결안',
   '화면이 안','화면 깨','깨짐','안 보임','보이지 않','표시 안','표시가 안',
   '데이터 사라','초기화됨','초기화 되','결제 오류','결제 안','구매 안','구매오류',
+  '미노출','노출 안','오작동','진행불가','진행 불가','진행이 안','진행이안',
+  '상이','팝업 오류','팝업오류','레드닷','빈칸','빈 칸','누락','미반영',
+  '신고합니다','제보합니다','제보드립니다','신고드립니다',
 ];
 
-// ── 의견/평가 키워드 ─────────────────────────────────────────
+// ── 의견/평가 키워드 (Jira [의견]/[요청]/[문의] 패턴 반영) ─────
 const OPINION_KW = [
-  '건의','요청','제안','피드백','suggestion',
+  '건의','요청','제안','피드백','suggestion','문의','개선 요청','기능 추가',
   '해줬으면','줬으면','하면 좋겠','했으면 좋겠','있으면 좋겠',
   '됐으면','됐으면 좋겠','좋겠습니다','좋겠어요','좋겠네요',
-  '추가해주','추가됐으면','추가 부탁','개선해주','개선 요청','개선됐으면',
+  '추가해주','추가됐으면','추가 부탁','개선해주','개선됐으면','개선해달','개선하면',
   '넣어주세요','넣어줬으면','만들어주','해주세요','해주셨으면','해주면',
   '없나요','왜없나','왜 없나','없을까요','언제 추가','언제쯤','도입해주',
   '바랍니다','바래요','바라겠습니다','부탁드립니다','부탁합니다','부탁이에요',
@@ -626,15 +629,15 @@ const DATE = {
     if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) return today();
 
     // YYYY-MM-DD / YYYY.MM.DD — 4자리 연도 (우선 매칭)
-    let m = s.match(/^(20\d{2})[-.\\/](\d{2})[-.\\/](\d{2})/);
+    let m = s.match(/^(20\d{2})[-.\\/(\d{2})[-.\\/(\d{2})/);
     if (m) return `${m[1]}-${m[2]}-${m[3]}`;
 
     // YY.MM.DD / YY-MM-DD — 2자리 연도
-    m = s.match(/^(\d{2})[-.\\/](\d{2})[-.\\/](\d{2})/);
+    m = s.match(/^(\d{2})[-.\\/(\d{2})[-.\\/(\d{2})/);
     if (m) return `20${m[1]}-${m[2]}-${m[3]}`;
 
     // MM.DD / MM-DD — 당해연도 게시물 (DC 올해 날짜)
-    m = s.match(/^(\d{1,2})[-.\\/](\d{2})$/);
+    m = s.match(/^(\d{1,2})[-.\\/(\d{2})$/);
     if (m) return `${yr}-${m[1].padStart(2,'0')}-${m[2]}`;
 
     // YYYYMMDD — 네이버 postdate 형식
@@ -667,86 +670,68 @@ const DC_BOARDS = {
   dc_cpb26:   { game:'컴프야26',   url:'https://gall.dcinside.com/mgallery/board/lists/?id=com2usbaseball' },
 };
 
-async function scrapeDcinside(siteKey, dateFrom, dateTo, log, userKeywords=[]) {
+async function scrapeDcinside(siteKey, dateFrom, dateTo, log) {
   const { game, url: baseUrl } = DC_BOARDS[siteKey];
   const posts = [];
   const seenUrls = new Set();
 
-  // 사용자 키워드 입력 시 — 키워드별로 [제목+본문] / [댓글] 두 검색 URL 사용
-  // - s_type=search_subject_memo : 제목+본문
-  // - s_type=search_comment      : 댓글
-  // URL 중복은 seenUrls로 제거
-  const queries = userKeywords.length > 0
-    ? userKeywords.flatMap(kw => [
-        { kw, type:'subject_memo',
-          url: `${baseUrl}&s_type=search_subject_memo&s_keyword=${encodeURIComponent(kw)}` },
-        { kw, type:'comment',
-          url: `${baseUrl}&s_type=search_comment&s_keyword=${encodeURIComponent(kw)}` },
-      ])
-    : [{ kw: null, type: null, url: baseUrl }];
+  log(`DC인사이드 ${game} 전체글 수집`, 'info');
+  for (let page=1; page<=10; page++) {
+    const url = page===1 ? baseUrl : `${baseUrl}&page=${page}`;
+    log(`  DC ${game} 페이지 ${page}`, 'info');
+    const html = await proxyGet(url);
+    if (!html || html.length < 500) { log(`    → 응답 없음/차단, 중단`, 'warn'); break; }
 
-  for (const { kw, type, url: queryUrl } of queries) {
-    if (kw) log(`DC인사이드 ${game} 키워드 검색: "${kw}" [${type}]`, 'info');
+    const rows = [...html.matchAll(/<tr[^>]*class="[^"]*ub-content[^"]*"[^>]*>([\s\S]*?)<\/tr>/g)].map(m=>m[1]);
+    let oldestDate = '9999', pageCount = 0;
 
-    for (let page=1; page<=7; page++) {
-      const url = page===1 ? queryUrl : `${queryUrl}&page=${page}`;
-      log(`  DC ${game} 페이지 ${page}${kw?` ["${kw}"]`:''}`, 'info');
-      const html = await proxyGet(url);
-      if (!html || html.length < 500) { log(`    → 응답 없음/차단, 중단`, 'warn'); break; }
-
-      const rows = [...html.matchAll(/<tr[^>]*class="[^"]*ub-content[^"]*"[^>]*>([\s\S]*?)<\/tr>/g)].map(m=>m[1]);
-      let oldestDate = '9999', pageCount = 0;
-
-      for (const row of rows) {
-        // 공지/설문/이벤트 행 스킵 (gall_num 셀이 숫자가 아니면 공지 등)
-        const numM = row.match(/<td[^>]*class="[^"]*gall_num[^"]*"[^>]*>([\s\S]*?)<\/td>/);
-        if (numM) {
-          const numText = stripTags(numM[1]);
-          if (!/^\d+$/.test(numText)) continue;
-        }
-        if (/icon_notice|class="notice"/.test(row)) continue;
-
-        const urlM = row.match(/href="(\/(?:mgallery|board)\/board\/view\/[^"]+)"[^>]*view-msg/) ||
-                     row.match(/href="(\/(?:mgallery|board)\/board\/view\/[^"]+)"/);
-        if (!urlM) continue;
-        const postUrl = 'https://gall.dcinside.com' + urlM[1];
-        if (seenUrls.has(postUrl)) continue; // 키워드별 중복 제거
-        seenUrls.add(postUrl);
-
-        const titleM = row.match(new RegExp(urlM[1].replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '"[^>]*view-msg[^>]*>([\\s\\S]*?)<\/a>')) ||
-                       row.match(/gall_tit[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/);
-        const title = titleM ? esc(stripTags(titleM[1])).replace(/\[.*?\]/g,'').trim() : '';
-        if (!title) continue;
-
-        const dateM = row.match(/<td[^>]*class="[^"]*gall_date[^"]*"[^>]*>([^<\n]+)</);
-        const dateStr = dateM ? DATE.parse(dateM[1]) : null;
-        if (!dateStr || !DATE.isReasonable(dateStr)) continue;
-        if (dateStr < oldestDate) oldestDate = dateStr;
-        if (!DATE.inRange(dateStr, dateFrom, dateTo)) continue;
-
-        const viewM = row.match(/<td[^>]*class="[^"]*gall_count[^"]*"[^>]*>(\d+)</);
-        posts.push({ title, url: postUrl, date: dateStr, views: viewM?viewM[1]:'0',
-                     source: `DC인사이드(${game})`, game, body:'', images:[] });
-        pageCount++;
+    for (const row of rows) {
+      // 공지/설문/이벤트 행 스킵 (gall_num 셀이 숫자가 아니면 공지 등)
+      const numM = row.match(/<td[^>]*class="[^"]*gall_num[^"]*"[^>]*>([\s\S]*?)<\/td>/);
+      if (numM) {
+        const numText = stripTags(numM[1]);
+        if (!/^\d+$/.test(numText)) continue;
       }
-      log(`    → ${pageCount}건 수집, 최소날짜=${oldestDate}`);
-      if (oldestDate !== '9999' && oldestDate < dateFrom) break;
-      await sleep(1500);
+      if (/icon_notice|class="notice"/.test(row)) continue;
+
+      const urlM = row.match(/href="(\/(?:mgallery|board)\/board\/view\/[^"]+)"[^>]*view-msg/) ||
+                   row.match(/href="(\/(?:mgallery|board)\/board\/view\/[^"]+)"/);
+      if (!urlM) continue;
+      const postUrl = 'https://gall.dcinside.com' + urlM[1];
+      if (seenUrls.has(postUrl)) continue;
+      seenUrls.add(postUrl);
+
+      const titleM = row.match(new RegExp(urlM[1].replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '"[^>]*view-msg[^>]*>([\\s\\S]*?)<\/a>')) ||
+                     row.match(/gall_tit[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/);
+      const title = titleM ? esc(stripTags(titleM[1])).replace(/\[.*?\]/g,'').trim() : '';
+      if (!title) continue;
+
+      const dateM = row.match(/<td[^>]*class="[^"]*gall_date[^"]*"[^>]*>([^<\n]+)</);
+      const dateStr = dateM ? DATE.parse(dateM[1]) : null;
+      if (!dateStr || !DATE.isReasonable(dateStr)) continue;
+      if (dateStr < oldestDate) oldestDate = dateStr;
+      if (!DATE.inRange(dateStr, dateFrom, dateTo)) continue;
+
+      const viewM = row.match(/<td[^>]*class="[^"]*gall_count[^"]*"[^>]*>(\d+)</);
+      posts.push({ title, url: postUrl, date: dateStr, views: viewM?viewM[1]:'0',
+                   source: `DC인사이드(${game})`, game, body:'', images:[] });
+      pageCount++;
     }
+    log(`    → ${pageCount}건 수집, 최소날짜=${oldestDate}`);
+    if (oldestDate !== '9999' && oldestDate < dateFrom) break;
+    await sleep(1500);
   }
   return posts;
 }
 
 // ═══════════════════════════════════════════════════════════════
 //  컴프야V 공식 커뮤니티 SCRAPER  — /board/all 통합 게시판
-//  - 기존 board_idx 28(버그제보)/29(건의사항) 분리 수집을 폐기
-//  - getBoardContents API + idx=all 로 전체글 한 번에
-//  - 키워드 입력 시 본문+댓글 fetch 후 매칭
+//  - getBoardContents API + idx=all 로 전체글 한 번에 수집
+//  - 키워드 필터 없이 날짜 범위 내 모든 게시글 수집
 // ═══════════════════════════════════════════════════════════════
-async function scrapeCpbvOfficial(dateFrom, dateTo, log, userKeywords=[]) {
+async function scrapeCpbvOfficial(dateFrom, dateTo, log) {
   const BASE = 'https://cpbv-community.com2us.com';
   const posts = [];
-  const wantDetail = userKeywords.length > 0;
 
   log(`컴프야V 공식 [전체글] (idx=all)`, 'info');
   for (let page=1; page<=10; page++) {
@@ -765,7 +750,7 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log, userKeywords=[]) {
     } catch { log(`  페이지 ${page}: JSON 파싱 실패`, 'warn'); break; }
     if (!items.length) break;
 
-    let oldestDate = '9999', pageCount = 0, kwSkip = 0;
+    let oldestDate = '9999', pageCount = 0;
     for (const item of items) {
       const dateStr = DATE.parse(item.regdate || item.ymdhm_regdate);
       if (!dateStr || !DATE.isReasonable(dateStr)) continue;
@@ -777,81 +762,17 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log, userKeywords=[]) {
       const title = esc(item.title || '');
       if (!title) continue;
 
-      let bodyText = '', images = [], comments = '';
-      let titleMatch = false, fetchFailed = false;
-
-      if (wantDetail) {
-        // 1단계: 제목 매칭 — 제목에 키워드 있으면 fetch 생략하고 즉시 통과
-        const titleLower = title.toLowerCase();
-        titleMatch = userKeywords.some(k => fuzzyIncludes(titleLower, k));
-
-        if (!titleMatch) {
-          // 2단계: 본문 fetch
-          try {
-            const detail = await proxyGet(postUrl);
-            if (detail && detail.length > 200) {
-              const ctM = detail.match(/class="post_cont">([\s\S]*?)<!--\s*\/\/post_cont/);
-              if (ctM) {
-                images = [...ctM[1].matchAll(/<img[^>]*src=["']([^"']+)["']/g)].map(m=>m[1])
-                          .filter(u=>u.includes('cpbv-community.com2us.com/image')).slice(0,2);
-                bodyText = esc(stripTags(ctM[1])).slice(0,500);
-              } else {
-                // post_cont 영역 추출 실패 — 페이지 구조 변경 또는 레이아웃 차이
-                // 게시물을 폐기하지 않고 fetchFailed 처리
-                fetchFailed = true;
-              }
-            } else { fetchFailed = true; }
-          } catch { fetchFailed = true; }
-
-          // 3단계: 댓글 fetch (comment_count > 0 일 때만)
-          let cmtFetchFailed = false;
-          if (+item.comment_count > 0) {
-            try {
-              const cmtBody = new URLSearchParams({ page:1, board_idx:bidx, contents_idx:item.idx }).toString();
-              const cmtRaw = await proxyPost(`${BASE}/board/list/getCommentList`, cmtBody,
-                                              { Referer:postUrl });
-              if (cmtRaw) {
-                try {
-                  const cj = JSON.parse(cmtRaw);
-                  if (cj.list_html) comments = esc(stripTags(cj.list_html)).slice(0,1500);
-                  else cmtFetchFailed = true;
-                } catch { cmtFetchFailed = true; }
-              } else { cmtFetchFailed = true; }
-            } catch { cmtFetchFailed = true; }
-          }
-          // 댓글 fetch 실패도 본문 fetch 실패와 동등하게 취급 (잠재 매칭 보존)
-          if (cmtFetchFailed && +item.comment_count > 0) fetchFailed = true;
-
-          // 4단계: 본문+댓글 매칭
-          const contentText = (bodyText + ' ' + comments).toLowerCase();
-          const contentMatch = contentText.length > 0
-            && userKeywords.some(k => fuzzyIncludes(contentText, k));
-
-          // 매칭 실패 + fetch도 실패하지 않은 경우만 스킵
-          // (fetch 실패 시엔 keep — 잠재 매칭 가능성을 폐기하지 않음)
-          // 버그신고 게시판(board_idx=28) 글은 버그 키워드 검색 시 매칭 없이 포함
-          const bugBoardBypass = bidx == 28
-            && userKeywords.some(k => BUG_KW.some(bk => fuzzyIncludes(bk, k)));
-          if (!contentMatch && !fetchFailed && !bugBoardBypass) {
-            kwSkip++;
-            await sleep(80);
-            continue;
-          }
-        }
-      }
+      const bodyText = esc(item.contentSummary || item.content_summary || '').slice(0, 300);
 
       posts.push({
         title, url:postUrl, date:dateStr,
         views: String(item.view_count || 0),
         source: '컴프야V 공식커뮤', game: '컴프야V', board: `board_${bidx}`,
-        body: bodyText + (comments ? `\n[댓글] ${comments.slice(0,300)}` : '')
-              + (fetchFailed ? ' [본문/댓글 fetch 실패]' : ''),
-        images,
+        body: bodyText, images: [],
       });
       pageCount++;
-      if (wantDetail && !titleMatch) await sleep(80);
     }
-    log(`  페이지 ${page} → 수집 ${pageCount}건${kwSkip?` · 키워드 미스 ${kwSkip}`:''},  최소날짜=${oldestDate}`);
+    log(`  페이지 ${page} → 수집 ${pageCount}건, 최소날짜=${oldestDate}`);
     if (oldestDate !== '9999' && oldestDate < dateFrom) break;
     if (items.length < 20) break;
     await sleep(500);
@@ -861,16 +782,14 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log, userKeywords=[]) {
 
 // ═══════════════════════════════════════════════════════════════
 //  MLB라이벌 공식 커뮤니티 SCRAPER  — /ko/board/all 통합 게시판
-//  - 기존 board_idx 21(버그제보)/17(자유) 분리 수집을 폐기
-//  - board_idx=all + 키워드 입력 시 댓글 fetch 후 매칭
+//  - getBoardList API + board_idx=all 로 전체글 한 번에 수집
+//  - 키워드 필터 없이 날짜 범위 내 모든 게시글 수집
 // ═══════════════════════════════════════════════════════════════
-async function scrapeRivalsOfficial(dateFrom, dateTo, log, userKeywords=[]) {
+async function scrapeRivalsOfficial(dateFrom, dateTo, log) {
   const BASE = 'https://community.withhive.com';
   const SLUG = 'MLB9IRIVALS';
   const apiUrl = `${BASE}/${SLUG}/board/list/getBoardList`;
-  const cmtUrl = `${BASE}/${SLUG}/board/list/getCommentList`;
   const posts  = [];
-  const wantDetail = userKeywords.length > 0;
 
   log(`MLB라이벌 공식 [전체글] (board_idx=all)`, 'info');
   for (let page=1; page<=10; page++) {
@@ -889,7 +808,7 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log, userKeywords=[]) {
     } catch { log(`  페이지 ${page}: JSON 파싱 실패`, 'warn'); break; }
     if (!items.length) break;
 
-    let oldestDate = '9999', pageCount = 0, kwSkip = 0;
+    let oldestDate = '9999', pageCount = 0;
     for (const item of items) {
       if (typeof item !== 'object') continue;
       const dateStr = DATE.parse(item.regdate);
@@ -909,67 +828,15 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log, userKeywords=[]) {
                       .filter(u=>u.includes('withhive.com')).slice(0,2);
       if (thumb.includes('withhive.com')) imgs.unshift(thumb);
 
-      let comments = '';
-      let titleMatch = false, fetchFailed = false;
-
-      if (wantDetail) {
-        // 1단계: 제목 매칭 — 제목 매칭 시 fetch 생략
-        const titleLower = title.toLowerCase();
-        titleMatch = userKeywords.some(k => fuzzyIncludes(titleLower, k));
-
-        if (!titleMatch) {
-          // 2단계: 본문은 이미 body_noscript에 있음, 매칭 시도
-          let contentMatch = false;
-          if (bodyText) {
-            contentMatch = userKeywords.some(k => fuzzyIncludes(bodyText.toLowerCase(), k));
-          }
-
-          // 3단계: 본문 매칭 실패 시 댓글 fetch (comment_count > 0)
-          if (!contentMatch && +item.comment_count > 0) {
-            let cmtFetchFailed = false;
-            try {
-              const cmtBody = new URLSearchParams({
-                page:1, lang:'ko', contents_idx:postId, is_mobile:0
-              }).toString();
-              const cmtRaw = await proxyPost(cmtUrl, cmtBody, { Referer:postUrl });
-              if (cmtRaw) {
-                try {
-                  const cj = JSON.parse(cmtRaw);
-                  if (cj.list_html) comments = esc(stripTags(cj.list_html)).slice(0,1500);
-                  else cmtFetchFailed = true;
-                } catch { cmtFetchFailed = true; }
-              } else { cmtFetchFailed = true; }
-            } catch { cmtFetchFailed = true; }
-            if (cmtFetchFailed) fetchFailed = true;
-            if (comments) {
-              contentMatch = userKeywords.some(k => fuzzyIncludes(comments.toLowerCase(), k));
-            }
-          }
-
-          // 매칭 실패 + fetch 실패도 아닌 경우만 스킵
-          // 버그신고 게시판(board_idx=21) 글은 버그 키워드 검색 시 매칭 없이 포함
-          const bugBoardBypass = bidx == 21
-            && userKeywords.some(k => BUG_KW.some(bk => fuzzyIncludes(bk, k)));
-          if (!contentMatch && !fetchFailed && !bugBoardBypass) {
-            kwSkip++;
-            await sleep(80);
-            continue;
-          }
-        }
-      }
-
       posts.push({
         title, url:postUrl, date:dateStr,
         views: String(item.view_count || 0),
         source: 'MLB라이벌 공식커뮤', game: 'MLB라이벌', board: `board_${bidx}`,
-        body: bodyText + (comments ? `\n[댓글] ${comments.slice(0,300)}` : '')
-              + (fetchFailed ? ' [댓글 fetch 실패]' : ''),
-        images: imgs.slice(0,2),
+        body: bodyText, images: imgs.slice(0,2),
       });
       pageCount++;
-      if (wantDetail && !titleMatch && !comments) await sleep(80);
     }
-    log(`  페이지 ${page} → 수집 ${pageCount}건${kwSkip?` · 키워드 미스 ${kwSkip}`:''},  최소날짜=${oldestDate}`);
+    log(`  페이지 ${page} → 수집 ${pageCount}건, 최소날짜=${oldestDate}`);
     if (oldestDate !== '9999' && oldestDate < dateFrom) break;
     if (items.length < 20) break;
     await sleep(500);
@@ -1303,30 +1170,30 @@ document.getElementById('btnStart').addEventListener('click', async () => {
   let doneSites = 0;
 
   try {
-    // DC인사이드 (키워드 있으면 s_keyword 검색 URL로 사전 필터)
+    // DC인사이드 — 전체글 수집 (기간 필터만)
     for (const key of ['dc_cpyv','dc_rivals','dc_9innings','dc_cpb26']) {
       if (!sites.includes(key)) continue;
       const { game } = DC_BOARDS[key];
       log(`=== DC인사이드 ${game} 수집 시작 ===`, 'info');
-      const p = await scrapeDcinside(key, dateFrom, dateTo, log, userKeywords);
+      const p = await scrapeDcinside(key, dateFrom, dateTo, log);
       allPosts.push(...p);
       log(`DC ${game} 완료: ${p.length}건`);
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
     }
 
-    // 컴프야V 공식 (전체글 + 키워드 입력 시 본문/댓글 매칭)
+    // 컴프야V 공식 — 전체글 수집
     if (sites.includes('cpbv_official')) {
       log('=== 컴프야V 공식 커뮤니티 수집 시작 ===', 'info');
-      const p = await scrapeCpbvOfficial(dateFrom, dateTo, log, userKeywords);
+      const p = await scrapeCpbvOfficial(dateFrom, dateTo, log);
       allPosts.push(...p);
       log(`컴프야V 공식 완료: ${p.length}건`);
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
     }
 
-    // MLB라이벌 공식 (전체글 + 키워드 입력 시 댓글 매칭)
+    // MLB라이벌 공식 — 전체글 수집
     if (sites.includes('rivals_official')) {
       log('=== MLB라이벌 공식 커뮤니티 수집 시작 ===', 'info');
-      const p = await scrapeRivalsOfficial(dateFrom, dateTo, log, userKeywords);
+      const p = await scrapeRivalsOfficial(dateFrom, dateTo, log);
       allPosts.push(...p);
       log(`MLB라이벌 공식 완료: ${p.length}건`);
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
@@ -1360,42 +1227,29 @@ document.getElementById('btnStart').addEventListener('click', async () => {
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
     }
 
-    // ── 사후 키워드 필터 제거 ────────────────────────────────
-    // 소스별 키워드 적용 방식:
-    //   DC인사이드  — s_keyword (subject_memo + comment) 검색 URL로 사전 필터
-    //   공식커뮤    — /board/all 수집 후 본문+댓글 fetch 매칭
-    //               (버그신고 게시판 글은 버그 키워드 검색 시 매칭 없이 포함)
-    //   네이버카페  — 키워드 무시, 기간 내 카페 전체글 수집 (카테고리 필터만 사후 적용)
-
-    // ── 카테고리 분류 ───────────────────────────────────────
-    // 사이트별 strict 모드 결정:
-    //   - 네이버 카페: 항상 strict=false (전체글 모드, 카테고리 매칭 안되면 의견/평가)
-    //   - DC/공식 + 키워드 미입력: strict=true (BUG/OPINION 매칭 글만)
-    //   - DC/공식 + 키워드 입력: strict=false (이미 사이트가 사전 필터함)
-    const hasUserKw = userKeywords.length > 0;
-    // 분류 라벨: 실제로 strict가 적용될 DC/공식 게시물이 있을 때만 표기
-    const hasStrictPosts = !hasUserKw && allPosts.some(p => !(p.source || '').startsWith('네이버카페'));
-    log(`=== 분류 중 (총 ${allPosts.length}건${hasStrictPosts?' · DC·공식 strict':''}) ===`, 'info');
+    // ── 카테고리 분류 — 모든 소스 strict=false (전체글 수집 후 자동 분류) ──
+    log(`=== 분류 중 (총 ${allPosts.length}건) ===`, 'info');
     setProgress(90, '분류 중...');
-    const filtered = [];
-    let droppedStrict = 0, droppedFilter = 0;
+    const classified = [];
+    let droppedFilter = 0;
     for (const p of allPosts) {
-      const isNaver = (p.source || '').startsWith('네이버카페');
-      const strict = !isNaver && !hasUserKw;
-      const cat = classifyCategory(p.title, p.body, cats, strict);
-      if (cat === null) {
-        if (strict) droppedStrict++; else droppedFilter++;
-        continue;
-      }
+      const cat = classifyCategory(p.title, p.body, cats, false);
+      if (cat === null) { droppedFilter++; continue; }
       p.category        = cat;
       p.game_classified = p.game || classifyGame(p.title, p.body, p.hint||p.source||'');
       p.severity        = classifySeverity(p.title, p.body);
       p.device          = 'Android/iOS (미확인)';
       p.frequency       = '미상';
-      filtered.push(p);
+      classified.push(p);
     }
-    if (droppedStrict)  log(`  → strict 미매칭 ${droppedStrict}건 제외 (DC·공식, BUG/OPINION 키워드 없음)`);
-    if (droppedFilter)  log(`  → 카테고리 체크박스 미선택으로 ${droppedFilter}건 제외`);
+    if (droppedFilter) log(`  → 카테고리 체크박스 미선택으로 ${droppedFilter}건 제외`);
+
+    // ── 키워드 제목 필터 (입력 시 제목에 키워드 포함된 글만 표시) ──
+    const hasUserKw = userKeywords.length > 0;
+    const filtered = hasUserKw
+      ? classified.filter(p => userKeywords.some(k => fuzzyIncludes(p.title.toLowerCase(), k)))
+      : classified;
+    if (hasUserKw) log(`  → 제목 키워드 필터: ${filtered.length}건 (전체 ${classified.length}건 중)`);
     log(`분류 완료: ${filtered.length}건`);
     setProgress(100, `✅ 완료 — ${filtered.length}건 수집`);
 
