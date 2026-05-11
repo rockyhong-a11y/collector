@@ -626,15 +626,15 @@ const DATE = {
     if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) return today();
 
     // YYYY-MM-DD / YYYY.MM.DD — 4자리 연도 (우선 매칭)
-    let m = s.match(/^(20\d{2})[-.\/](\d{2})[-.\/](\d{2})/);
+    let m = s.match(/^(20\d{2})[-.\\/](\d{2})[-.\\/](\d{2})/);
     if (m) return `${m[1]}-${m[2]}-${m[3]}`;
 
     // YY.MM.DD / YY-MM-DD — 2자리 연도
-    m = s.match(/^(\d{2})[-.\/](\d{2})[-.\/](\d{2})/);
+    m = s.match(/^(\d{2})[-.\\/](\d{2})[-.\\/](\d{2})/);
     if (m) return `20${m[1]}-${m[2]}-${m[3]}`;
 
     // MM.DD / MM-DD — 당해연도 게시물 (DC 올해 날짜)
-    m = s.match(/^(\d{1,2})[-.\/](\d{2})$/);
+    m = s.match(/^(\d{1,2})[-.\\/](\d{2})$/);
     if (m) return `${yr}-${m[1].padStart(2,'0')}-${m[2]}`;
 
     // YYYYMMDD — 네이버 postdate 형식
@@ -851,7 +851,7 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log, userKeywords=[]) {
       pageCount++;
       if (wantDetail && !titleMatch) await sleep(80);
     }
-    log(`  페이지 ${page} → 수집 ${pageCount}건${kwSkip?` · 키워드 미스 ${kwSkip}`:''}, 최소날짜=${oldestDate}`);
+    log(`  페이지 ${page} → 수집 ${pageCount}건${kwSkip?` · 키워드 미스 ${kwSkip}`:''},  최소날짜=${oldestDate}`);
     if (oldestDate !== '9999' && oldestDate < dateFrom) break;
     if (items.length < 20) break;
     await sleep(500);
@@ -969,7 +969,7 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log, userKeywords=[]) {
       pageCount++;
       if (wantDetail && !titleMatch && !comments) await sleep(80);
     }
-    log(`  페이지 ${page} → 수집 ${pageCount}건${kwSkip?` · 키워드 미스 ${kwSkip}`:''}, 최소날짜=${oldestDate}`);
+    log(`  페이지 ${page} → 수집 ${pageCount}건${kwSkip?` · 키워드 미스 ${kwSkip}`:''},  최소날짜=${oldestDate}`);
     if (oldestDate !== '9999' && oldestDate < dateFrom) break;
     if (items.length < 20) break;
     await sleep(500);
@@ -1246,7 +1246,7 @@ function addLog(msg, type='') {
   const ts  = new Date().toLocaleTimeString('ko-KR',{hour12:false});
   const el  = document.createElement('div');
   el.className = 'log-line';
-  el.innerHTML = `<span class="log-time">${ts}</span><span class="log-msg${type?' '+type:''}">` + escHtml(msg) + `</span>`;
+  el.innerHTML = `<span class="log-time">${ts}</span><span class="log-msg${type?' '+type:''}">` + escHtml(msg) + '</span>';
   box.appendChild(el);
   box.scrollTop = box.scrollHeight;
 }
@@ -1443,11 +1443,11 @@ function showResults(results) {
     return `<tr>
       <td style="text-align:center;color:#484f58;width:36px">${i+1}</td>
       <td><span class="game-chip game-${game}">${game}</span></td>
-      <td><a href="${escHtml(r.url||'')}" target="_blank" rel="noopener">${escHtml(r.title||'')}</a></td>
-      <td><span class="tag tag-${catKey}">${escHtml(r.category||'')}</span></td>
+      <td><a href="` + escHtml(r.url||'') + `" target="_blank" rel="noopener">` + escHtml(r.title||'') + `</a></td>
+      <td><span class="tag tag-${catKey}">` + escHtml(r.category||'') + `</span></td>
       <td><span class="sev sev-${sev}">${sev}</span></td>
-      <td style="font-size:11px;color:#6e7681;white-space:nowrap">${escHtml(r.source||'')}</td>
-      <td style="font-size:11px;color:#6e7681;white-space:nowrap">${escHtml(r.date||'')}</td>
+      <td style="font-size:11px;color:#6e7681;white-space:nowrap">` + escHtml(r.source||'') + `</td>
+      <td style="font-size:11px;color:#6e7681;white-space:nowrap">` + escHtml(r.date||'') + `</td>
     </tr>`;
   }).join('');
 
