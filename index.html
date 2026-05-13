@@ -325,7 +325,7 @@ tbody tr:hover td{background:#1c2128}
   <div class="card">
     <div class="card-title">🔍 검색어 (선택)</div>
     <div class="field">
-      <label class="field-label">키워드 — 쉼표/공백 구분 &nbsp;·&nbsp; 전체 게시글 수집 후 제목 필터 (미입력 시 전체 표시) &nbsp;·&nbsp; 카테고리는 자동 분류</label>
+      <label class="field-label">키워드 — 쉼표/공백 구분 &nbsp;·&nbsp; 전체 게시글 수집 후 제목·본문 필터 (미입력 시 전체 표시) &nbsp;·&nbsp; 카테고리는 자동 분류</label>
       <input type="text" id="keywords" placeholder="예: 버그, 크래시, 결제 오류 (미입력 시 전체 수집)">
     </div>
   </div>
@@ -629,15 +629,15 @@ const DATE = {
     if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) return today();
 
     // YYYY-MM-DD / YYYY.MM.DD — 4자리 연도 (우선 매칭)
-    let m = s.match(/^(20\d{2})[-.\\/](\d{2})[-.\\/](\d{2})/);
+    let m = s.match(/^(20\d{2})[-.\/](\d{2})[-.\/](\d{2})/);
     if (m) return `${m[1]}-${m[2]}-${m[3]}`;
 
     // YY.MM.DD / YY-MM-DD — 2자리 연도
-    m = s.match(/^(\d{2})[-.\\/](\d{2})[-.\\/](\d{2})/);
+    m = s.match(/^(\d{2})[-.\/](\d{2})[-.\/](\d{2})/);
     if (m) return `20${m[1]}-${m[2]}-${m[3]}`;
 
     // MM.DD / MM-DD — 당해연도 게시물 (DC 올해 날짜)
-    m = s.match(/^(\d{1,2})[-.\\/](\d{2})$/);
+    m = s.match(/^(\d{1,2})[-.\/](\d{2})$/);
     if (m) return `${yr}-${m[1].padStart(2,'0')}-${m[2]}`;
 
     // YYYYMMDD — 네이버 postdate 형식
@@ -1113,7 +1113,7 @@ function addLog(msg, type='') {
   const ts  = new Date().toLocaleTimeString('ko-KR',{hour12:false});
   const el  = document.createElement('div');
   el.className = 'log-line';
-  el.innerHTML = `<span class="log-time">${ts}</span><span class="log-msg${type?' '+type:''}">` + escHtml(msg) + '</span>';
+  el.innerHTML = `<span class="log-time">${ts}</span><span class="log-msg${type?' '+type:''}">`  + escHtml(msg) + '</span>';
   box.appendChild(el);
   box.scrollTop = box.scrollHeight;
 }
@@ -1244,12 +1244,15 @@ document.getElementById('btnStart').addEventListener('click', async () => {
     }
     if (droppedFilter) log(`  → 카테고리 체크박스 미선택으로 ${droppedFilter}건 제외`);
 
-    // ── 키워드 제목 필터 (입력 시 제목에 키워드 포함된 글만 표시) ──
+    // ── 키워드 필터 (입력 시 제목 or 본문에 키워드 포함된 글만 표시) ──
     const hasUserKw = userKeywords.length > 0;
     const filtered = hasUserKw
-      ? classified.filter(p => userKeywords.some(k => fuzzyIncludes(p.title.toLowerCase(), k)))
+      ? classified.filter(p => userKeywords.some(k =>
+          fuzzyIncludes(p.title.toLowerCase(), k) ||
+          fuzzyIncludes((p.body || '').toLowerCase(), k)
+        ))
       : classified;
-    if (hasUserKw) log(`  → 제목 키워드 필터: ${filtered.length}건 (전체 ${classified.length}건 중)`);
+    if (hasUserKw) log(`  → 키워드 필터(제목·본문): ${filtered.length}건 (전체 ${classified.length}건 중)`);
     log(`분류 완료: ${filtered.length}건`);
     setProgress(100, `✅ 완료 — ${filtered.length}건 수집`);
 
