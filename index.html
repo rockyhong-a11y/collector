@@ -734,6 +734,9 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log) {
   const posts = [];
 
   log(`컴프야V 공식 [전체글] (idx=all)`, 'info');
+
+  // ── JSON API 경로 ──────────────────────────────────────────────
+  let apiSuccess = false;
   for (let page=1; page<=10; page++) {
     const body = new URLSearchParams({
       e_type:'board1', idx:'all', header:'', lang:'ko',
@@ -741,7 +744,7 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log) {
     }).toString();
     const raw = await proxyPost(`${BASE}/board/list/getBoardContents`, body,
                                  { Referer:`${BASE}/board/all` });
-    if (!raw) { log(`  페이지 ${page}: 응답 없음`, 'warn'); break; }
+    if (!raw) { log(`  페이지 ${page}: JSON API 응답 없음`, 'warn'); break; }
 
     let items = [];
     try {
@@ -750,6 +753,7 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log) {
     } catch { log(`  페이지 ${page}: JSON 파싱 실패`, 'warn'); break; }
     if (!items.length) break;
 
+    apiSuccess = true;
     let oldestDate = '9999', pageCount = 0;
     for (const item of items) {
       const dateStr = DATE.parse(item.regdate || item.ymdhm_regdate);
@@ -777,6 +781,53 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log) {
     if (items.length < 20) break;
     await sleep(500);
   }
+
+  // ── HTML 폴백 (JSON API 실패 시) ───────────────────────────────
+  if (!apiSuccess) {
+    log(`  JSON API 불가 → HTML 게시판 페이지 폴백`, 'warn');
+    const linkRe = /href="(\/board\/(\d+)\/(\d{5,}))"/g;
+    for (let page=1; page<=10; page++) {
+      const html = await proxyGet(`${BASE}/board/all?page_num=${page}`);
+      if (!html || html.length < 500) { log(`  HTML 페이지 ${page}: 응답 없음`, 'warn'); break; }
+
+      const seen = new Set();
+      let oldestDate = '9999', pageCount = 0;
+      let m;
+      linkRe.lastIndex = 0;
+      while ((m = linkRe.exec(html)) !== null) {
+        const href = m[1];
+        if (seen.has(href)) continue;
+        seen.add(href);
+
+        // 링크 앞뒤 컨텍스트에서 제목·날짜 추출
+        const after  = html.slice(m.index, Math.min(html.length, m.index + 400));
+        const before = html.slice(Math.max(0, m.index - 400), m.index + 400);
+
+        const tM = after.match(/href="[^"]+?"[^>]*>([\s\S]{1,200}?)<\/a>/);
+        const rawTitle = tM ? stripTags(tM[1]).trim() : '';
+        if (!rawTitle || rawTitle.length < 2) continue;
+
+        const dM = before.match(/(\d{4}[.\-\/]\d{2}[.\-\/]\d{2}|\d{2}[.\-\/]\d{2}[.\-\/]\d{2}|\d{1,2}:\d{2}(?::\d{2})?)/);
+        const dateStr = dM ? DATE.parse(dM[1]) : null;
+        if (!dateStr || !DATE.isReasonable(dateStr)) continue;
+
+        if (dateStr < oldestDate) oldestDate = dateStr;
+        if (!DATE.inRange(dateStr, dateFrom, dateTo)) continue;
+
+        posts.push({
+          title: esc(rawTitle), url: `${BASE}${href}`, date: dateStr,
+          views: '0', source: '컴프야V 공식커뮤', game: '컴프야V',
+          board: `board_${m[2]}`, body: '', images: [],
+        });
+        pageCount++;
+      }
+      log(`  HTML 페이지 ${page} → ${pageCount}건, 최소날짜=${oldestDate}`);
+      if (oldestDate !== '9999' && oldestDate < dateFrom) break;
+      if (seen.size < 5) break;
+      await sleep(800);
+    }
+  }
+
   return posts;
 }
 
@@ -792,13 +843,16 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log) {
   const posts  = [];
 
   log(`MLB라이벌 공식 [전체글] (board_idx=all)`, 'info');
+
+  // ── JSON API 경로 ──────────────────────────────────────────────
+  let apiSuccess = false;
   for (let page=1; page<=10; page++) {
     const body = new URLSearchParams({
       page, board_idx:'all', board_type:1, board_comment:1,
       boardtype1_preview_image:1, is_mobile:0, select_type:0, view_type:'list'
     }).toString();
     const raw = await proxyPost(apiUrl, body, { Referer:`${BASE}/${SLUG}/ko/board/all` });
-    if (!raw) { log(`  페이지 ${page}: 응답 없음`, 'warn'); break; }
+    if (!raw) { log(`  페이지 ${page}: JSON API 응답 없음`, 'warn'); break; }
 
     let items = [];
     try {
@@ -808,6 +862,7 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log) {
     } catch { log(`  페이지 ${page}: JSON 파싱 실패`, 'warn'); break; }
     if (!items.length) break;
 
+    apiSuccess = true;
     let oldestDate = '9999', pageCount = 0;
     for (const item of items) {
       if (typeof item !== 'object') continue;
@@ -841,6 +896,52 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log) {
     if (items.length < 20) break;
     await sleep(500);
   }
+
+  // ── HTML 폴백 (JSON API 실패 시) ───────────────────────────────
+  if (!apiSuccess) {
+    log(`  JSON API 불가 → HTML 게시판 페이지 폴백`, 'warn');
+    const linkRe = /href="(\/MLB9IRIVALS\/(?:ko\/)?board\/(\d+)\/(\d{5,}))"/g;
+    for (let page=1; page<=10; page++) {
+      const html = await proxyGet(`${BASE}/${SLUG}/ko/board/all?page=${page}`);
+      if (!html || html.length < 500) { log(`  HTML 페이지 ${page}: 응답 없음`, 'warn'); break; }
+
+      const seen = new Set();
+      let oldestDate = '9999', pageCount = 0;
+      let m;
+      linkRe.lastIndex = 0;
+      while ((m = linkRe.exec(html)) !== null) {
+        const href = m[1];
+        if (seen.has(href)) continue;
+        seen.add(href);
+
+        const after  = html.slice(m.index, Math.min(html.length, m.index + 400));
+        const before = html.slice(Math.max(0, m.index - 400), m.index + 400);
+
+        const tM = after.match(/href="[^"]+?"[^>]*>([\s\S]{1,200}?)<\/a>/);
+        const rawTitle = tM ? stripTags(tM[1]).trim() : '';
+        if (!rawTitle || rawTitle.length < 2) continue;
+
+        const dM = before.match(/(\d{4}[.\-\/]\d{2}[.\-\/]\d{2}|\d{2}[.\-\/]\d{2}[.\-\/]\d{2}|\d{1,2}:\d{2}(?::\d{2})?)/);
+        const dateStr = dM ? DATE.parse(dM[1]) : null;
+        if (!dateStr || !DATE.isReasonable(dateStr)) continue;
+
+        if (dateStr < oldestDate) oldestDate = dateStr;
+        if (!DATE.inRange(dateStr, dateFrom, dateTo)) continue;
+
+        posts.push({
+          title: esc(rawTitle), url: `${BASE}${href}`, date: dateStr,
+          views: '0', source: 'MLB라이벌 공식커뮤', game: 'MLB라이벌',
+          board: `board_${m[2]}`, body: '', images: [],
+        });
+        pageCount++;
+      }
+      log(`  HTML 페이지 ${page} → ${pageCount}건, 최소날짜=${oldestDate}`);
+      if (oldestDate !== '9999' && oldestDate < dateFrom) break;
+      if (seen.size < 5) break;
+      await sleep(800);
+    }
+  }
+
   return posts;
 }
 
