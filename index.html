@@ -119,6 +119,11 @@ tbody tr:hover td{background:#1c2128}
 .tag-bug-issue{background:#3d1f1f;color:#f85149}
 .tag-opinion-review{background:#1f2e43;color:#79c0ff}
 .tag-inquiry{background:#1f2d1f;color:#56d364}
+.learned-chip{display:inline-block;padding:2px 8px;margin:2px 3px;border-radius:10px;background:#161b22;border:1px solid #30363d;font-size:11px;color:#c9d1d9}
+.learned-chip .x{margin-left:4px;color:#8b949e;cursor:pointer;font-weight:700}
+.learned-chip .x:hover{color:#f85149}
+.learn-btn{background:transparent;border:1px solid #30363d;color:#8b949e;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:11px}
+.learn-btn:hover{border-color:#58a6ff;color:#58a6ff}
 .sev{font-size:11px;font-weight:700}
 .sev-최상{color:#f85149}
 .sev-상{color:#e3b341}
@@ -341,6 +346,24 @@ tbody tr:hover td{background:#1c2128}
     </div>
   </div>
 
+  <!-- ── 2차 필터링 (정밀 매칭) ── -->
+  <div class="card">
+    <div class="card-title">🎯 2차 필터링 (정밀 매칭)</div>
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+      <input type="checkbox" id="enableSecondaryFilter" checked style="width:15px;height:15px;accent-color:#58a6ff;cursor:pointer">
+      <span>1차 수집 결과 중 <strong>제목·본문·댓글</strong>에 BUG/INQUIRY 키워드(+학습된 키워드)와 매칭되는 글만 표시</span>
+    </label>
+    <div style="font-size:11px;color:#6e7681;margin-top:6px;line-height:1.5">
+      ※ 의견/평가로 자동 분류된 글 중 버그·문의 표현이 없는 글을 제외합니다. 결과 행의 📌 버튼으로 새 표현을 학습시킬 수 있습니다.
+    </div>
+  </div>
+
+  <!-- ── 학습된 키워드 ── -->
+  <div class="card">
+    <div class="card-title">🧠 학습된 키워드 <button id="clearLearnedBtn" style="font-size:11px;padding:3px 10px;margin-left:8px;background:transparent;border:1px solid #30363d;color:#8b949e;border-radius:4px;cursor:pointer">전체 삭제</button></div>
+    <div id="learnedPanelBody" style="font-size:12px;line-height:1.9"></div>
+  </div>
+
   <!-- ── 시작 버튼 ── -->
   <div class="card" style="padding-bottom:20px">
     <button class="btn-start" id="btnStart">
@@ -366,7 +389,7 @@ tbody tr:hover td{background:#1c2128}
     <div class="table-scroll">
       <table>
         <thead><tr>
-          <th>#</th><th>게임</th><th>제목</th><th>카테고리</th><th>심각도</th><th>출처</th><th>날짜</th>
+          <th>#</th><th>게임</th><th>제목</th><th>카테고리</th><th>심각도</th><th>출처</th><th>날짜</th><th>학습</th>
         </tr></thead>
         <tbody id="resultBody"></tbody>
       </table>
@@ -533,6 +556,38 @@ async function proxyPost(url, body, extraHeaders={}, timeout=10000) {
 //  CLASSIFIERS
 // ═══════════════════════════════════════════════════════════════
 
+// ── 학습된 키워드 저장소 (localStorage 기반 자가 학습) ─────────
+// 사용자가 결과 행에서 📌 버튼으로 추가한 키워드를 누적 저장.
+// 다음 수집부터 classifyCategory + secondaryFilter에 자동 반영됨.
+const LEARNED_STORAGE_KEY = 'collector.learnedKW.v1';
+const LEARNED = { BUG: [], INQUIRY: [] };
+
+function loadLearned() {
+  try {
+    const raw = localStorage.getItem(LEARNED_STORAGE_KEY);
+    if (!raw) return;
+    const j = JSON.parse(raw);
+    LEARNED.BUG     = Array.isArray(j.BUG)     ? j.BUG.map(s=>String(s).toLowerCase()) : [];
+    LEARNED.INQUIRY = Array.isArray(j.INQUIRY) ? j.INQUIRY.map(s=>String(s).toLowerCase()) : [];
+  } catch {}
+}
+function saveLearned() {
+  try { localStorage.setItem(LEARNED_STORAGE_KEY, JSON.stringify(LEARNED)); } catch {}
+}
+function addLearnedKw(cat, phrase) {
+  const arr = cat === 'BUG' ? LEARNED.BUG : LEARNED.INQUIRY;
+  const t = String(phrase||'').trim().toLowerCase();
+  if (!t || t.length < 2 || arr.includes(t)) return false;
+  arr.push(t); saveLearned(); return true;
+}
+function removeLearnedKw(cat, phrase) {
+  const arr = cat === 'BUG' ? LEARNED.BUG : LEARNED.INQUIRY;
+  const i = arr.indexOf(phrase);
+  if (i < 0) return false;
+  arr.splice(i,1); saveLearned(); return true;
+}
+loadLearned();
+
 // ── 버그/이슈 키워드 (Jira [시스템]/[UI]/[인게임] 패턴 반영) ─────
 const BUG_KW = [
   // 명시적 버그 표현
@@ -641,10 +696,11 @@ function classifyCategory(title, body, activeFilters, strict = false) {
   // strict=true: BUG_KW/OPINION_KW 매칭 필수 → 미매칭 글 null로 제외
   // strict=false: 매칭 안되면 기본값 '의견/평가'로 처리 (수집 글 보존)
   // 분류 우선순위: 버그/이슈 > 문의/질문 > 의견/평가 > default(의견/평가)
+  // 각 카테고리별 학습된 키워드(LEARNED.BUG / LEARNED.INQUIRY)도 함께 검사
   let cat = strict ? null : '의견/평가';
-  if (BUG_KW.some(k => fuzzyIncludes(t, k))) {
+  if (BUG_KW.some(k => fuzzyIncludes(t, k)) || LEARNED.BUG.some(k => fuzzyIncludes(t, k))) {
     cat = '버그/이슈';
-  } else if (INQUIRY_KW.some(k => fuzzyIncludes(t, k))) {
+  } else if (INQUIRY_KW.some(k => fuzzyIncludes(t, k)) || LEARNED.INQUIRY.some(k => fuzzyIncludes(t, k))) {
     cat = '문의/질문';
   } else if (OPINION_KW.some(k => fuzzyIncludes(t, k))) {
     cat = '의견/평가';
@@ -652,6 +708,22 @@ function classifyCategory(title, body, activeFilters, strict = false) {
   if (cat === null) return null;
   if (activeFilters.has(cat)) return cat;
   return null;
+}
+
+// ── 2차 필터링 ─────────────────────────────────────────────────
+// 1차 수집 결과에서 제목·본문·댓글에 BUG_KW + INQUIRY_KW (+학습된 키워드)
+// 매칭이 있는 글만 통과시킴. 의견/평가 default 분류 글 중 정밀 매칭이
+// 없는 글을 제외하여 노이즈 감소.
+function secondaryFilter(post) {
+  const t = (
+    (post.title || '') + ' ' +
+    (post.body  || '') + ' ' +
+    (post.comments || '')
+  ).toLowerCase();
+  return BUG_KW.some(k => fuzzyIncludes(t, k))
+      || INQUIRY_KW.some(k => fuzzyIncludes(t, k))
+      || LEARNED.BUG.some(k => fuzzyIncludes(t, k))
+      || LEARNED.INQUIRY.some(k => fuzzyIncludes(t, k));
 }
 
 function classifyGame(title, body, hint='') {
@@ -1252,6 +1324,74 @@ document.querySelectorAll('.cat-btn').forEach(btn => {
   btn.addEventListener('click', () => btn.classList.toggle('on'));
 });
 
+// ── 학습된 키워드 패널 렌더링 ─────────────────────────────────
+function renderLearnedPanel() {
+  const body = document.getElementById('learnedPanelBody');
+  if (!body) return;
+  if (LEARNED.BUG.length === 0 && LEARNED.INQUIRY.length === 0) {
+    body.innerHTML = '<div style="color:#6e7681">학습된 키워드 없음. 결과 행의 📌 버튼으로 추가하세요.</div>';
+    return;
+  }
+  const chip = (cat, kw) => `<span class="learned-chip" data-cat="${cat}" data-kw="${escHtml(kw)}">${escHtml(kw)} <span class="x">×</span></span>`;
+  let html = '';
+  if (LEARNED.BUG.length) {
+    html += `<div style="margin-bottom:6px"><strong style="color:#f85149">🐛 버그</strong> (${LEARNED.BUG.length}): `;
+    html += LEARNED.BUG.map(k => chip('BUG', k)).join('');
+    html += '</div>';
+  }
+  if (LEARNED.INQUIRY.length) {
+    html += `<div><strong style="color:#56d364">❓ 문의</strong> (${LEARNED.INQUIRY.length}): `;
+    html += LEARNED.INQUIRY.map(k => chip('INQUIRY', k)).join('');
+    html += '</div>';
+  }
+  body.innerHTML = html;
+}
+renderLearnedPanel();
+
+// 학습 칩 삭제 (× 클릭)
+document.addEventListener('click', (e) => {
+  const x = e.target.closest('.learned-chip .x');
+  if (!x) return;
+  const chip = x.parentElement;
+  if (removeLearnedKw(chip.dataset.cat, chip.dataset.kw)) renderLearnedPanel();
+});
+
+// 전체 삭제 버튼
+document.getElementById('clearLearnedBtn')?.addEventListener('click', () => {
+  if (!LEARNED.BUG.length && !LEARNED.INQUIRY.length) return;
+  if (!confirm(`학습된 키워드 ${LEARNED.BUG.length + LEARNED.INQUIRY.length}개를 모두 삭제할까요?`)) return;
+  LEARNED.BUG.length = 0;
+  LEARNED.INQUIRY.length = 0;
+  saveLearned();
+  renderLearnedPanel();
+});
+
+// 📌 학습 버튼 클릭 (결과 행)
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.learn-btn');
+  if (!btn) return;
+  const idx = parseInt(btn.dataset.idx, 10);
+  const post = collectedResults[idx];
+  if (!post) return;
+
+  const catChoice = prompt(
+    `학습할 카테고리를 선택하세요\n  1 → 🐛 버그/이슈\n  2 → ❓ 문의/질문\n\n` +
+    `[제목]\n${post.title}\n\n[본문]\n${(post.body||'').slice(0, 200)}`
+  );
+  if (catChoice !== '1' && catChoice !== '2') return;
+
+  const phrase = prompt('학습할 키워드/구문을 입력하세요 (2자 이상):\n예) "결제했는데", "팅겨요", "수정 예정"');
+  if (!phrase) return;
+
+  const catKey = catChoice === '1' ? 'BUG' : 'INQUIRY';
+  if (addLearnedKw(catKey, phrase)) {
+    renderLearnedPanel();
+    alert(`📌 학습 완료 → ${catKey === 'BUG' ? '🐛 버그' : '❓ 문의'}: "${phrase.trim()}"\n\n다음 수집부터 분류·2차 필터에 반영됩니다.`);
+  } else {
+    alert('이미 등록된 키워드이거나 길이가 너무 짧습니다.');
+  }
+});
+
 // Site item checked state + show/hide Naver card + per-cafe config
 function syncNaverCard() {
   const cpb26   = !!document.querySelector('.site-item input[value=naver_cpb26]:checked');
@@ -1414,11 +1554,21 @@ document.getElementById('btnStart').addEventListener('click', async () => {
         ))
       : classified;
     if (hasUserKw) log(`  → 키워드 필터(제목·본문): ${filtered.length}건 (전체 ${classified.length}건 중)`);
-    log(`분류 완료: ${filtered.length}건`);
-    setProgress(100, `✅ 완료 — ${filtered.length}건 수집`);
 
-    collectedResults = filtered;
-    showResults(filtered);
+    // ── 2차 필터링 (정밀 매칭) ─────────────────────────────────
+    let finalResults = filtered;
+    const enableSec = document.getElementById('enableSecondaryFilter')?.checked ?? true;
+    if (enableSec) {
+      finalResults = filtered.filter(secondaryFilter);
+      const learnedSize = LEARNED.BUG.length + LEARNED.INQUIRY.length;
+      log(`  → 2차 필터(버그·문의 정밀${learnedSize?` + 학습 ${learnedSize}개`:''}): ${finalResults.length}건 (1차 ${filtered.length}건 중)`, 'info');
+    }
+
+    log(`분류 완료: ${finalResults.length}건`);
+    setProgress(100, `✅ 완료 — ${finalResults.length}건 수집`);
+
+    collectedResults = finalResults;
+    showResults(finalResults);
 
   } catch(e) {
     log(`❌ 오류: ${e.message||e}`, 'err');
@@ -1467,6 +1617,7 @@ function showResults(results) {
       <td><span class="sev sev-${sev}">${sev}</span></td>
       <td style="font-size:11px;color:#6e7681;white-space:nowrap">` + escHtml(r.source||'') + `</td>
       <td style="font-size:11px;color:#6e7681;white-space:nowrap">` + escHtml(r.date||'') + `</td>
+      <td style="text-align:center"><button class="learn-btn" data-idx="${i}" title="이 게시글의 핵심 표현을 학습">📌</button></td>
     </tr>`;
   }).join('');
 
