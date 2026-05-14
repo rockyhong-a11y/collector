@@ -37,6 +37,10 @@ export default async function handler(req, res) {
     if (req.method === 'POST') {
       headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';
       headers['X-Requested-With'] = 'XMLHttpRequest';
+      headers['Accept'] = 'application/json, text/javascript, */*; q=0.01';
+      headers['sec-fetch-mode'] = 'cors';
+      headers['sec-fetch-site'] = 'same-origin';
+      headers['sec-fetch-dest'] = 'empty';
       opts.body = await readBody(req);
     }
 

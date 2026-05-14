@@ -118,6 +118,12 @@ tbody tr:hover td{background:#1c2128}
 .tag{display:inline-block;padding:2px 7px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap}
 .tag-bug-issue{background:#3d1f1f;color:#f85149}
 .tag-opinion-review{background:#1f2e43;color:#79c0ff}
+.tag-inquiry{background:#1f2d1f;color:#56d364}
+.learned-chip{display:inline-block;padding:2px 8px;margin:2px 3px;border-radius:10px;background:#161b22;border:1px solid #30363d;font-size:11px;color:#c9d1d9}
+.learned-chip .x{margin-left:4px;color:#8b949e;cursor:pointer;font-weight:700}
+.learned-chip .x:hover{color:#f85149}
+.learn-btn{background:transparent;border:1px solid #30363d;color:#8b949e;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:11px}
+.learn-btn:hover{border-color:#58a6ff;color:#58a6ff}
 .sev{font-size:11px;font-weight:700}
 .sev-최상{color:#f85149}
 .sev-상{color:#e3b341}
@@ -335,8 +341,27 @@ tbody tr:hover td{background:#1c2128}
     <div class="card-title">🏷️ 카테고리 필터</div>
     <div class="cat-row" id="catRow">
       <button class="cat-btn on" data-cat="버그/이슈">🐛 버그/이슈</button>
+      <button class="cat-btn on" data-cat="문의/질문">❓ 문의/질문</button>
       <button class="cat-btn on" data-cat="의견/평가">💬 의견/평가</button>
     </div>
+  </div>
+
+  <!-- ── 2차 필터링 (정밀 매칭) ── -->
+  <div class="card">
+    <div class="card-title">🎯 2차 필터링 (정밀 매칭)</div>
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+      <input type="checkbox" id="enableSecondaryFilter" checked style="width:15px;height:15px;accent-color:#58a6ff;cursor:pointer">
+      <span>1차 수집 결과 중 <strong>제목·본문·댓글</strong>에 BUG/INQUIRY 키워드(+학습된 키워드)와 매칭되는 글만 표시</span>
+    </label>
+    <div style="font-size:11px;color:#6e7681;margin-top:6px;line-height:1.5">
+      ※ 의견/평가로 자동 분류된 글 중 버그·문의 표현이 없는 글을 제외합니다. 결과 행의 📌 버튼으로 새 표현을 학습시킬 수 있습니다.
+    </div>
+  </div>
+
+  <!-- ── 학습된 키워드 ── -->
+  <div class="card">
+    <div class="card-title">🧠 학습된 키워드 <button id="clearLearnedBtn" style="font-size:11px;padding:3px 10px;margin-left:8px;background:transparent;border:1px solid #30363d;color:#8b949e;border-radius:4px;cursor:pointer">전체 삭제</button></div>
+    <div id="learnedPanelBody" style="font-size:12px;line-height:1.9"></div>
   </div>
 
   <!-- ── 시작 버튼 ── -->
@@ -364,7 +389,7 @@ tbody tr:hover td{background:#1c2128}
     <div class="table-scroll">
       <table>
         <thead><tr>
-          <th>#</th><th>게임</th><th>제목</th><th>카테고리</th><th>심각도</th><th>출처</th><th>날짜</th>
+          <th>#</th><th>게임</th><th>제목</th><th>카테고리</th><th>심각도</th><th>출처</th><th>날짜</th><th>학습</th>
         </tr></thead>
         <tbody id="resultBody"></tbody>
       </table>
@@ -531,32 +556,120 @@ async function proxyPost(url, body, extraHeaders={}, timeout=10000) {
 //  CLASSIFIERS
 // ═══════════════════════════════════════════════════════════════
 
+// ── 학습된 키워드 저장소 (localStorage 기반 자가 학습) ─────────
+// 사용자가 결과 행에서 📌 버튼으로 추가한 키워드를 누적 저장.
+// 다음 수집부터 classifyCategory + secondaryFilter에 자동 반영됨.
+const LEARNED_STORAGE_KEY = 'collector.learnedKW.v1';
+const LEARNED = { BUG: [], INQUIRY: [] };
+
+function loadLearned() {
+  try {
+    const raw = localStorage.getItem(LEARNED_STORAGE_KEY);
+    if (!raw) return;
+    const j = JSON.parse(raw);
+    LEARNED.BUG     = Array.isArray(j.BUG)     ? j.BUG.map(s=>String(s).toLowerCase()) : [];
+    LEARNED.INQUIRY = Array.isArray(j.INQUIRY) ? j.INQUIRY.map(s=>String(s).toLowerCase()) : [];
+  } catch {}
+}
+function saveLearned() {
+  try { localStorage.setItem(LEARNED_STORAGE_KEY, JSON.stringify(LEARNED)); } catch {}
+}
+function addLearnedKw(cat, phrase) {
+  const arr = cat === 'BUG' ? LEARNED.BUG : LEARNED.INQUIRY;
+  const t = String(phrase||'').trim().toLowerCase();
+  if (!t || t.length < 2 || arr.includes(t)) return false;
+  arr.push(t); saveLearned(); return true;
+}
+function removeLearnedKw(cat, phrase) {
+  const arr = cat === 'BUG' ? LEARNED.BUG : LEARNED.INQUIRY;
+  const i = arr.indexOf(phrase);
+  if (i < 0) return false;
+  arr.splice(i,1); saveLearned(); return true;
+}
+loadLearned();
+
 // ── 버그/이슈 키워드 (Jira [시스템]/[UI]/[인게임] 패턴 반영) ─────
 const BUG_KW = [
+  // 명시적 버그 표현
   '버그','오류','에러','error','bug','이슈','issue',
   '크래시','crash','강종','강제종료','팅김','튕김','튕겨','팅겨',
   '프리징','freezing','멈춤','멈춰','먹통','멈첬','응답없',
+  // 로딩/접속
   '무한로딩','로딩 안','로딩안','로딩중','무한 로딩',
-  '안됨','안돼','안되는','안되네','않아요','않습니다','안 돼','안 됩니다',
-  '작동 안','작동안','클릭 안','눌러도 안','안 눌',
   '접속 불가','접속이 안','접속안','로그인 불가','로그인 안','연결 안','연결안',
+  '끊겨','끊김','끊힘','접속이 끊',
+  // 동작 불가 (Jira [시스템] "동작하지 않는", "눌리지 않는")
+  '안됨','안돼','안되는','안되네','않아요','않습니다','안 돼','안 됩니다',
+  '작동 안','작동안','클릭 안','눌러도 안','안 눌','동작이 안','동작안',
+  '눌리지 않','눌러지지','반응이 없','반응없음','반응없어',
+  // 표시/화면 (Jira [UI] "미노출", "어색하게 노출", "겹쳐 노출")
   '화면이 안','화면 깨','깨짐','안 보임','보이지 않','표시 안','표시가 안',
-  '데이터 사라','초기화됨','초기화 되','결제 오류','결제 안','구매 안','구매오류',
-  '미노출','노출 안','오작동','진행불가','진행 불가','진행이 안','진행이안',
-  '상이','팝업 오류','팝업오류','레드닷','빈칸','빈 칸','누락','미반영',
+  '미노출','노출 안','오작동',
+  '어색하게','어색하게 나와','어색하게 보','이상하게 나와','이상하게 보여',
+  '겹쳐','겹쳐서','겹침','겹치는','겹치네','겹쳐 보',
+  '비정상','비정상적','잘못 나와','잘못 표시','잘못표시','잘못 노출',
+  '짤려','잘려','짤려서','텍스트 짤','문구 짤',
+  // 적용/반영 불가 (Jira [시스템] "적용되지 않는", "반영이 안")
+  '반영이 안','반영안','적용이 안','적용안','적용되지','미반영',
+  '해금이 안','해금 안','잠겨있','잠겨 있',
+  // 진행/기능 불가
+  '진행불가','진행 불가','진행이 안','진행이안',
+  // 화면 표시 관련
+  '레드닷','빈칸','빈 칸','누락',
+  '팝업 오류','팝업오류',
+  // 데이터/결제
+  '데이터 사라','초기화됨','초기화 되',
+  '결제 오류','결제 안','구매 안','구매오류',
+  '결제했는데','결제 후 아이템','아이템 안 들어','아이템이 안','아이템 못 받',
+  '보상 안 들어','보상이 안','안 들어왔','안들어왔',
+  '미수령','미지급','미전달','수령이 안','지급이 안','지급 안',
+  // 상이/오류
+  '상이','기획과 다른','기획이랑 다른',
+  // 싱크/사운드 (Jira [인게임])
+  '싱크가 안','싱크 오류','싱크 안 맞','소리가 없','소리 없음','소리가 안','사운드 없','사운드 오류',
+  // 신고/제보
   '신고합니다','제보합니다','제보드립니다','신고드립니다',
 ];
 
-// ── 의견/평가 키워드 (Jira [의견]/[요청]/[문의] 패턴 반영) ─────
+// ── 문의/질문 키워드 (Jira [문의] 패턴 — 의도 확인·방법 문의) ─────
+const INQUIRY_KW = [
+  // 의도 확인 (Jira "기획의도인지 문의", "의도된 사항일지 문의")
+  '의도된건가요','의도한건가요','의도적인가요','기획 의도','의도가 뭔가요',
+  '원래 이런건가요','원래 이런가요','원래 그런건가요','원래 그런가요',
+  '원래 안 되는건가요','원래 안되는건가요','원래 이렇게',
+  '이게 정상인가요','이거 정상인가요','정상적인건가요','정상인건가요',
+  '이게 맞나요','이거 맞나요','이게 맞는건가요','맞는건가요','맞는건지',
+  '버그인가요','버그인건가요','이게 버그인지','버그인지',
+  // 수정/패치 일정 문의 (Jira [문의] "언제 수정될지 문의")
+  '언제 수정','언제 고쳐','언제 됩니다','언제 될까요','언제 되나요',
+  '언제 패치','언제 업뎃','언제 업데이트','수정 예정','패치 예정',
+  // 일반 질문
+  '궁금한게','궁금한 게','궁금한데','궁금합니다','궁금해서','궁금해요',
+  '질문있','질문 있','질문드립','질문합니다',
+  '여쭤보고','여쭤봐도','여쭤봅니다','여쭤드립',
+  '문의드립','문의합니다','문의입니다',
+  // 방법/기준 문의
+  '어떻게 하나요','어떻게 하는건가요','어떻게 하면','방법이 있나요','방법 알려',
+  '어떻게 된건가요','어떻게 됐나요','어떻게 된거','이게 왜','왜 이렇게','왜 이런',
+  // 확인 요청 (Jira "확인 부탁드립니다", "검토 부탁드립니다")
+  '확인해주세요','확인 부탁','알려주세요','알려주시면','알려줘','알려주시겠',
+  '검토해주','검토 부탁','검토 부탁드',
+];
+
+// ── 의견/평가 키워드 (Jira [의견]/[요청] 패턴 반영) ─────────────
 const OPINION_KW = [
-  '건의','요청','제안','피드백','suggestion','문의','개선 요청','기능 추가',
+  // 건의/요청 (Jira [요청] "개선을 요청드립니다", "편의성을 제공하자는 의견")
+  '건의','요청','제안','피드백','suggestion','개선 요청','기능 추가',
+  '편의성','편의 기능','편의 개선','유저 편의',
   '해줬으면','줬으면','하면 좋겠','했으면 좋겠','있으면 좋겠',
   '됐으면','됐으면 좋겠','좋겠습니다','좋겠어요','좋겠네요',
   '추가해주','추가됐으면','추가 부탁','개선해주','개선됐으면','개선해달','개선하면',
   '넣어주세요','넣어줬으면','만들어주','해주세요','해주셨으면','해주면',
   '없나요','왜없나','왜 없나','없을까요','언제 추가','언제쯤','도입해주',
   '바랍니다','바래요','바라겠습니다','부탁드립니다','부탁합니다','부탁이에요',
+  // 의견 표명 (Jira [의견] "의견입니다", "편의성을 제공하자는 의견")
   '생각인데','의견인데','의견입니다','어떻게 생각','제 생각엔',
+  // 후기/평가
   '후기','리뷰','평가','소감','느낌','감상','총평','종합 평가',
   '패치 후','패치하고','패치노트','업데이트 후','업데이트하고','업뎃 후','업뎃하고',
   '업데이트 이후','업뎃 이후','업데이트 전후','패치 이후',
@@ -583,15 +696,35 @@ function classifyCategory(title, body, activeFilters, strict = false) {
   const t = (title + ' ' + body).toLowerCase();
   // strict=true: BUG_KW/OPINION_KW 매칭 필수 → 미매칭 글 null로 제외
   // strict=false: 매칭 안되면 기본값 '의견/평가'로 처리 (수집 글 보존)
+  // 분류 우선순위: 버그/이슈 > 문의/질문 > 의견/평가 > default(의견/평가)
+  // 각 카테고리별 학습된 키워드(LEARNED.BUG / LEARNED.INQUIRY)도 함께 검사
   let cat = strict ? null : '의견/평가';
-  if (BUG_KW.some(k => fuzzyIncludes(t, k))) {
+  if (BUG_KW.some(k => fuzzyIncludes(t, k)) || LEARNED.BUG.some(k => fuzzyIncludes(t, k))) {
     cat = '버그/이슈';
+  } else if (INQUIRY_KW.some(k => fuzzyIncludes(t, k)) || LEARNED.INQUIRY.some(k => fuzzyIncludes(t, k))) {
+    cat = '문의/질문';
   } else if (OPINION_KW.some(k => fuzzyIncludes(t, k))) {
     cat = '의견/평가';
   }
   if (cat === null) return null;
   if (activeFilters.has(cat)) return cat;
   return null;
+}
+
+// ── 2차 필터링 ─────────────────────────────────────────────────
+// 1차 수집 결과에서 제목·본문·댓글에 BUG_KW + INQUIRY_KW (+학습된 키워드)
+// 매칭이 있는 글만 통과시킴. 의견/평가 default 분류 글 중 정밀 매칭이
+// 없는 글을 제외하여 노이즈 감소.
+function secondaryFilter(post) {
+  const t = (
+    (post.title || '') + ' ' +
+    (post.body  || '') + ' ' +
+    (post.comments || '')
+  ).toLowerCase();
+  return BUG_KW.some(k => fuzzyIncludes(t, k))
+      || INQUIRY_KW.some(k => fuzzyIncludes(t, k))
+      || LEARNED.BUG.some(k => fuzzyIncludes(t, k))
+      || LEARNED.INQUIRY.some(k => fuzzyIncludes(t, k));
 }
 
 function classifyGame(title, body, hint='') {
@@ -734,6 +867,9 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log) {
   const posts = [];
 
   log(`컴프야V 공식 [전체글] (idx=all)`, 'info');
+
+  // ── JSON API 경로 ──────────────────────────────────────────────
+  let apiSuccess = false;
   for (let page=1; page<=10; page++) {
     const body = new URLSearchParams({
       e_type:'board1', idx:'all', header:'', lang:'ko',
@@ -741,7 +877,7 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log) {
     }).toString();
     const raw = await proxyPost(`${BASE}/board/list/getBoardContents`, body,
                                  { Referer:`${BASE}/board/all` });
-    if (!raw) { log(`  페이지 ${page}: 응답 없음`, 'warn'); break; }
+    if (!raw) { log(`  페이지 ${page}: JSON API 응답 없음`, 'warn'); break; }
 
     let items = [];
     try {
@@ -750,6 +886,7 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log) {
     } catch { log(`  페이지 ${page}: JSON 파싱 실패`, 'warn'); break; }
     if (!items.length) break;
 
+    apiSuccess = true;
     let oldestDate = '9999', pageCount = 0;
     for (const item of items) {
       const dateStr = DATE.parse(item.regdate || item.ymdhm_regdate);
@@ -777,6 +914,53 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log) {
     if (items.length < 20) break;
     await sleep(500);
   }
+
+  // ── HTML 폴백 (JSON API 실패 시) ───────────────────────────────
+  if (!apiSuccess) {
+    log(`  JSON API 불가 → HTML 게시판 페이지 폴백`, 'warn');
+    const linkRe = /href="(\/board\/(\d+)\/(\d{5,}))"/g;
+    for (let page=1; page<=10; page++) {
+      const html = await proxyGet(`${BASE}/board/all?page_num=${page}`);
+      if (!html || html.length < 500) { log(`  HTML 페이지 ${page}: 응답 없음`, 'warn'); break; }
+
+      const seen = new Set();
+      let oldestDate = '9999', pageCount = 0;
+      let m;
+      linkRe.lastIndex = 0;
+      while ((m = linkRe.exec(html)) !== null) {
+        const href = m[1];
+        if (seen.has(href)) continue;
+        seen.add(href);
+
+        // 링크 앞뒤 컨텍스트에서 제목·날짜 추출
+        const after  = html.slice(m.index, Math.min(html.length, m.index + 400));
+        const before = html.slice(Math.max(0, m.index - 400), m.index + 400);
+
+        const tM = after.match(/href="[^"]+?"[^>]*>([\s\S]{1,200}?)<\/a>/);
+        const rawTitle = tM ? stripTags(tM[1]).trim() : '';
+        if (!rawTitle || rawTitle.length < 2) continue;
+
+        const dM = before.match(/(\d{4}[.\-\/]\d{2}[.\-\/]\d{2}|\d{2}[.\-\/]\d{2}[.\-\/]\d{2}|\d{1,2}:\d{2}(?::\d{2})?)/);
+        const dateStr = dM ? DATE.parse(dM[1]) : null;
+        if (!dateStr || !DATE.isReasonable(dateStr)) continue;
+
+        if (dateStr < oldestDate) oldestDate = dateStr;
+        if (!DATE.inRange(dateStr, dateFrom, dateTo)) continue;
+
+        posts.push({
+          title: esc(rawTitle), url: `${BASE}${href}`, date: dateStr,
+          views: '0', source: '컴프야V 공식커뮤', game: '컴프야V',
+          board: `board_${m[2]}`, body: '', images: [],
+        });
+        pageCount++;
+      }
+      log(`  HTML 페이지 ${page} → ${pageCount}건, 최소날짜=${oldestDate}`);
+      if (oldestDate !== '9999' && oldestDate < dateFrom) break;
+      if (seen.size < 5) break;
+      await sleep(800);
+    }
+  }
+
   return posts;
 }
 
@@ -792,13 +976,16 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log) {
   const posts  = [];
 
   log(`MLB라이벌 공식 [전체글] (board_idx=all)`, 'info');
+
+  // ── JSON API 경로 ──────────────────────────────────────────────
+  let apiSuccess = false;
   for (let page=1; page<=10; page++) {
     const body = new URLSearchParams({
       page, board_idx:'all', board_type:1, board_comment:1,
       boardtype1_preview_image:1, is_mobile:0, select_type:0, view_type:'list'
     }).toString();
     const raw = await proxyPost(apiUrl, body, { Referer:`${BASE}/${SLUG}/ko/board/all` });
-    if (!raw) { log(`  페이지 ${page}: 응답 없음`, 'warn'); break; }
+    if (!raw) { log(`  페이지 ${page}: JSON API 응답 없음`, 'warn'); break; }
 
     let items = [];
     try {
@@ -808,6 +995,7 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log) {
     } catch { log(`  페이지 ${page}: JSON 파싱 실패`, 'warn'); break; }
     if (!items.length) break;
 
+    apiSuccess = true;
     let oldestDate = '9999', pageCount = 0;
     for (const item of items) {
       if (typeof item !== 'object') continue;
@@ -841,6 +1029,52 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log) {
     if (items.length < 20) break;
     await sleep(500);
   }
+
+  // ── HTML 폴백 (JSON API 실패 시) ───────────────────────────────
+  if (!apiSuccess) {
+    log(`  JSON API 불가 → HTML 게시판 페이지 폴백`, 'warn');
+    const linkRe = /href="(\/MLB9IRIVALS\/(?:ko\/)?board\/(\d+)\/(\d{5,}))"/g;
+    for (let page=1; page<=10; page++) {
+      const html = await proxyGet(`${BASE}/${SLUG}/ko/board/all?page=${page}`);
+      if (!html || html.length < 500) { log(`  HTML 페이지 ${page}: 응답 없음`, 'warn'); break; }
+
+      const seen = new Set();
+      let oldestDate = '9999', pageCount = 0;
+      let m;
+      linkRe.lastIndex = 0;
+      while ((m = linkRe.exec(html)) !== null) {
+        const href = m[1];
+        if (seen.has(href)) continue;
+        seen.add(href);
+
+        const after  = html.slice(m.index, Math.min(html.length, m.index + 400));
+        const before = html.slice(Math.max(0, m.index - 400), m.index + 400);
+
+        const tM = after.match(/href="[^"]+?"[^>]*>([\s\S]{1,200}?)<\/a>/);
+        const rawTitle = tM ? stripTags(tM[1]).trim() : '';
+        if (!rawTitle || rawTitle.length < 2) continue;
+
+        const dM = before.match(/(\d{4}[.\-\/]\d{2}[.\-\/]\d{2}|\d{2}[.\-\/]\d{2}[.\-\/]\d{2}|\d{1,2}:\d{2}(?::\d{2})?)/);
+        const dateStr = dM ? DATE.parse(dM[1]) : null;
+        if (!dateStr || !DATE.isReasonable(dateStr)) continue;
+
+        if (dateStr < oldestDate) oldestDate = dateStr;
+        if (!DATE.inRange(dateStr, dateFrom, dateTo)) continue;
+
+        posts.push({
+          title: esc(rawTitle), url: `${BASE}${href}`, date: dateStr,
+          views: '0', source: 'MLB라이벌 공식커뮤', game: 'MLB라이벌',
+          board: `board_${m[2]}`, body: '', images: [],
+        });
+        pageCount++;
+      }
+      log(`  HTML 페이지 ${page} → ${pageCount}건, 최소날짜=${oldestDate}`);
+      if (oldestDate !== '9999' && oldestDate < dateFrom) break;
+      if (seen.size < 5) break;
+      await sleep(800);
+    }
+  }
+
   return posts;
 }
 
@@ -1032,17 +1266,17 @@ function buildExcel(allResults) {
     ['야구 게임 커뮤니티 수집 리포트'],
     [`수집 일시: ${new Date().toLocaleString('ko-KR')}`],
     [''],
-    ['게임','수집건수','버그/이슈','의견/평가','수집 사이트'],
+    ['게임','수집건수','버그/이슈','문의/질문','의견/평가','수집 사이트'],
   ];
   for (const g of games) {
     const items = byGame[g];
     if (!items.length) continue;
     const cnt = cat => items.filter(r=>r.category===cat).length;
     const srcs = [...new Set(items.map(r=>r.source||''))].join(', ');
-    sumData.push([g, items.length, cnt('버그/이슈'), cnt('의견/평가'), srcs]);
+    sumData.push([g, items.length, cnt('버그/이슈'), cnt('문의/질문'), cnt('의견/평가'), srcs]);
   }
   const wsSum = XLSX.utils.aoa_to_sheet(sumData);
-  wsSum['!cols'] = [{wch:16},{wch:10},{wch:10},{wch:10},{wch:50}];
+  wsSum['!cols'] = [{wch:16},{wch:10},{wch:10},{wch:10},{wch:10},{wch:50}];
   XLSX.utils.book_append_sheet(wb, wsSum, '전체요약');
 
   // ── 게임별 시트 ──
@@ -1089,6 +1323,74 @@ let isRunning = false;
 // Category toggle
 document.querySelectorAll('.cat-btn').forEach(btn => {
   btn.addEventListener('click', () => btn.classList.toggle('on'));
+});
+
+// ── 학습된 키워드 패널 렌더링 ─────────────────────────────────
+function renderLearnedPanel() {
+  const body = document.getElementById('learnedPanelBody');
+  if (!body) return;
+  if (LEARNED.BUG.length === 0 && LEARNED.INQUIRY.length === 0) {
+    body.innerHTML = '<div style="color:#6e7681">학습된 키워드 없음. 결과 행의 📌 버튼으로 추가하세요.</div>';
+    return;
+  }
+  const chip = (cat, kw) => `<span class="learned-chip" data-cat="${cat}" data-kw="${escHtml(kw)}">${escHtml(kw)} <span class="x">×</span></span>`;
+  let html = '';
+  if (LEARNED.BUG.length) {
+    html += `<div style="margin-bottom:6px"><strong style="color:#f85149">🐛 버그</strong> (${LEARNED.BUG.length}): `;
+    html += LEARNED.BUG.map(k => chip('BUG', k)).join('');
+    html += '</div>';
+  }
+  if (LEARNED.INQUIRY.length) {
+    html += `<div><strong style="color:#56d364">❓ 문의</strong> (${LEARNED.INQUIRY.length}): `;
+    html += LEARNED.INQUIRY.map(k => chip('INQUIRY', k)).join('');
+    html += '</div>';
+  }
+  body.innerHTML = html;
+}
+renderLearnedPanel();
+
+// 학습 칩 삭제 (× 클릭)
+document.addEventListener('click', (e) => {
+  const x = e.target.closest('.learned-chip .x');
+  if (!x) return;
+  const chip = x.parentElement;
+  if (removeLearnedKw(chip.dataset.cat, chip.dataset.kw)) renderLearnedPanel();
+});
+
+// 전체 삭제 버튼
+document.getElementById('clearLearnedBtn')?.addEventListener('click', () => {
+  if (!LEARNED.BUG.length && !LEARNED.INQUIRY.length) return;
+  if (!confirm(`학습된 키워드 ${LEARNED.BUG.length + LEARNED.INQUIRY.length}개를 모두 삭제할까요?`)) return;
+  LEARNED.BUG.length = 0;
+  LEARNED.INQUIRY.length = 0;
+  saveLearned();
+  renderLearnedPanel();
+});
+
+// 📌 학습 버튼 클릭 (결과 행)
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.learn-btn');
+  if (!btn) return;
+  const idx = parseInt(btn.dataset.idx, 10);
+  const post = collectedResults[idx];
+  if (!post) return;
+
+  const catChoice = prompt(
+    `학습할 카테고리를 선택하세요\n  1 → 🐛 버그/이슈\n  2 → ❓ 문의/질문\n\n` +
+    `[제목]\n${post.title}\n\n[본문]\n${(post.body||'').slice(0, 200)}`
+  );
+  if (catChoice !== '1' && catChoice !== '2') return;
+
+  const phrase = prompt('학습할 키워드/구문을 입력하세요 (2자 이상):\n예) "결제했는데", "팅겨요", "수정 예정"');
+  if (!phrase) return;
+
+  const catKey = catChoice === '1' ? 'BUG' : 'INQUIRY';
+  if (addLearnedKw(catKey, phrase)) {
+    renderLearnedPanel();
+    alert(`📌 학습 완료 → ${catKey === 'BUG' ? '🐛 버그' : '❓ 문의'}: "${phrase.trim()}"\n\n다음 수집부터 분류·2차 필터에 반영됩니다.`);
+  } else {
+    alert('이미 등록된 키워드이거나 길이가 너무 짧습니다.');
+  }
 });
 
 // Site item checked state + show/hide Naver card + per-cafe config
@@ -1253,11 +1555,21 @@ document.getElementById('btnStart').addEventListener('click', async () => {
         ))
       : classified;
     if (hasUserKw) log(`  → 키워드 필터(제목·본문): ${filtered.length}건 (전체 ${classified.length}건 중)`);
-    log(`분류 완료: ${filtered.length}건`);
-    setProgress(100, `✅ 완료 — ${filtered.length}건 수집`);
 
-    collectedResults = filtered;
-    showResults(filtered);
+    // ── 2차 필터링 (정밀 매칭) ─────────────────────────────────
+    let finalResults = filtered;
+    const enableSec = document.getElementById('enableSecondaryFilter')?.checked ?? true;
+    if (enableSec) {
+      finalResults = filtered.filter(secondaryFilter);
+      const learnedSize = LEARNED.BUG.length + LEARNED.INQUIRY.length;
+      log(`  → 2차 필터(버그·문의 정밀${learnedSize?` + 학습 ${learnedSize}개`:''}): ${finalResults.length}건 (1차 ${filtered.length}건 중)`, 'info');
+    }
+
+    log(`분류 완료: ${finalResults.length}건`);
+    setProgress(100, `✅ 완료 — ${finalResults.length}건 수집`);
+
+    collectedResults = finalResults;
+    showResults(finalResults);
 
   } catch(e) {
     log(`❌ 오류: ${e.message||e}`, 'err');
@@ -1275,7 +1587,7 @@ function showResults(results) {
   document.getElementById('resultsSection').style.display = 'block';
 
   const byGame = {};
-  const byCat  = { '버그/이슈': 0, '의견/평가': 0 };
+  const byCat  = { '버그/이슈': 0, '문의/질문': 0, '의견/평가': 0 };
   for (const r of results) {
     const g = r.game_classified||'기타';
     byGame[g] = (byGame[g]||0)+1;
@@ -1287,6 +1599,7 @@ function showResults(results) {
     statsHtml += `<div class="stat-box"><div class="num">${n}</div><div class="lbl">${g}</div></div>`;
   }
   statsHtml += `<div class="stat-box"><div class="num" style="color:#f85149">${byCat['버그/이슈']}</div><div class="lbl">버그/이슈</div></div>`;
+  statsHtml += `<div class="stat-box"><div class="num" style="color:#56d364">${byCat['문의/질문']}</div><div class="lbl">문의/질문</div></div>`;
   statsHtml += `<div class="stat-box"><div class="num" style="color:#79c0ff">${byCat['의견/평가']}</div><div class="lbl">의견/평가</div></div>`;
   document.getElementById('statsRow').innerHTML = statsHtml;
   document.getElementById('progCount').textContent = `${results.length}건`;
@@ -1294,7 +1607,7 @@ function showResults(results) {
   const tbody = document.getElementById('resultBody');
   const MAX_ROWS = 300;
   tbody.innerHTML = results.slice(0,MAX_ROWS).map((r,i) => {
-    const catKey  = r.category === '버그/이슈' ? 'bug-issue' : 'opinion-review';
+    const catKey  = r.category === '버그/이슈' ? 'bug-issue' : r.category === '문의/질문' ? 'inquiry' : 'opinion-review';
     const game    = r.game_classified||'기타';
     const sev     = r.severity||'중';
     return `<tr>
@@ -1305,6 +1618,7 @@ function showResults(results) {
       <td><span class="sev sev-${sev}">${sev}</span></td>
       <td style="font-size:11px;color:#6e7681;white-space:nowrap">` + escHtml(r.source||'') + `</td>
       <td style="font-size:11px;color:#6e7681;white-space:nowrap">` + escHtml(r.date||'') + `</td>
+      <td style="text-align:center"><button class="learn-btn" data-idx="${i}" title="이 게시글의 핵심 표현을 학습">📌</button></td>
     </tr>`;
   }).join('');
 
