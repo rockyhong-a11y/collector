@@ -16,6 +16,27 @@
             "timeout": 30
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file=$(jq -r '.tool_input.file_path // .tool_response.filePath // \"\"' 2>/dev/null); [[ \"$file\" != *\"index.html\"* ]] && exit 0; [ -f /tmp/collector-vbumped ] && exit 0; current=$(grep -oP '(?<=class=\"badge\">v)[0-9]+\\.[0-9]+' /home/user/collector/index.html 2>/dev/null | head -1); [ -z \"$current\" ] && exit 0; if [ -f /tmp/collector-major-bump ]; then major=$(echo \"$current\" | cut -d. -f1); new=\"$((major + 1)).0\"; rm -f /tmp/collector-major-bump; label=\"major\"; else new=$(python3 -c \"v=float('$current'); print(f'{v+0.1:.1f}')\"); label=\"minor\"; fi; sed -i \"s|class=\\\"badge\\\">v${current}|class=\\\"badge\\\">v${new}|\" /home/user/collector/index.html; touch /tmp/collector-vbumped; echo \"{\\\"systemMessage\\\": \\\"🔖 버전 자동 업데이트: v${current} → v${new} (${label})\\\"}\"",
+            "statusMessage": "버전 업데이트 중...",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rm -f /tmp/collector-vbumped 2>/dev/null || true"
+          }
+        ]
       }
     ]
   }
