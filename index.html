@@ -169,7 +169,7 @@ tbody tr:hover td{background:#1c2128}
 <header>
   <div class="header-left">
     <h1>⚾ 야구 게임 커뮤니티 수집 툴</h1>
-    <span class="badge">v4.1</span>
+    <span class="badge">v4.2</span>
   </div>
   <div class="header-right">DC인사이드 · 공식 커뮤니티 · 네이버카페</div>
 </header>
@@ -556,37 +556,61 @@ async function proxyPost(url, body, extraHeaders={}, timeout=10000) {
 //  CLASSIFIERS
 // ═══════════════════════════════════════════════════════════════
 
-// ── 학습된 키워드 저장소 (localStorage 기반 자가 학습) ─────────
-// 사용자가 결과 행에서 📌 버튼으로 추가한 키워드를 누적 저장.
-// 다음 수집부터 classifyCategory + secondaryFilter에 자동 반영됨.
-const LEARNED_STORAGE_KEY = 'collector.learnedKW.v1';
+// ── 공유 학습 키워드 (서버 기반 — Vercel KV) ──────────────────
+// 모든 사용자가 동일한 키워드 풀을 공유. /kw → /api/keywords 경유.
+// 추가: 누구나 / 삭제: 비밀번호 필요 (KW_DELETE_PASSWORD 환경변수)
 const LEARNED = { BUG: [], INQUIRY: [] };
 
-function loadLearned() {
+async function _kwFetch(method, body) {
+  for (const path of ['/kw', '/api/keywords']) {
+    try {
+      const opts = { method, headers: { 'Content-Type': 'application/json' }, cache: 'no-store' };
+      if (body) opts.body = JSON.stringify(body);
+      const r = await fetch(path, opts);
+      if (r.ok) return r.json();
+    } catch {}
+  }
+  return null;
+}
+
+async function loadLearned() {
   try {
-    const raw = localStorage.getItem(LEARNED_STORAGE_KEY);
-    if (!raw) return;
-    const j = JSON.parse(raw);
-    LEARNED.BUG     = Array.isArray(j.BUG)     ? j.BUG.map(s=>String(s).toLowerCase()) : [];
-    LEARNED.INQUIRY = Array.isArray(j.INQUIRY) ? j.INQUIRY.map(s=>String(s).toLowerCase()) : [];
+    const data = await _kwFetch('GET');
+    if (data) {
+      LEARNED.BUG     = Array.isArray(data.BUG)     ? data.BUG.map(s=>String(s).toLowerCase())     : [];
+      LEARNED.INQUIRY = Array.isArray(data.INQUIRY) ? data.INQUIRY.map(s=>String(s).toLowerCase()) : [];
+      renderLearnedPanel();
+    }
   } catch {}
 }
-function saveLearned() {
-  try { localStorage.setItem(LEARNED_STORAGE_KEY, JSON.stringify(LEARNED)); } catch {}
-}
-function addLearnedKw(cat, phrase) {
+
+async function addLearnedKw(cat, phrase) {
   const arr = cat === 'BUG' ? LEARNED.BUG : LEARNED.INQUIRY;
   const t = String(phrase||'').trim().toLowerCase();
   if (!t || t.length < 2 || arr.includes(t)) return false;
-  arr.push(t); saveLearned(); return true;
+  const res = await _kwFetch('POST', { cat, kw: t });
+  if (!res || res.error) return false;
+  LEARNED.BUG     = Array.isArray(res.BUG)     ? res.BUG     : LEARNED.BUG;
+  LEARNED.INQUIRY = Array.isArray(res.INQUIRY) ? res.INQUIRY : LEARNED.INQUIRY;
+  return true;
 }
-function removeLearnedKw(cat, phrase) {
-  const arr = cat === 'BUG' ? LEARNED.BUG : LEARNED.INQUIRY;
-  const i = arr.indexOf(phrase);
-  if (i < 0) return false;
-  arr.splice(i,1); saveLearned(); return true;
+
+async function removeLearnedKw(cat, phrase, password) {
+  const t = String(phrase||'').trim().toLowerCase();
+  const res = await _kwFetch('DELETE', { cat, kw: t, password });
+  if (!res || res.error) return res?.error === 'wrong password' ? 'wrong_pw' : false;
+  LEARNED.BUG     = Array.isArray(res.BUG)     ? res.BUG     : LEARNED.BUG;
+  LEARNED.INQUIRY = Array.isArray(res.INQUIRY) ? res.INQUIRY : LEARNED.INQUIRY;
+  return true;
 }
-loadLearned();
+
+async function clearAllLearned(password) {
+  const res = await _kwFetch('DELETE', { clearAll: true, password });
+  if (!res || res.error) return res?.error === 'wrong password' ? 'wrong_pw' : false;
+  LEARNED.BUG = [];
+  LEARNED.INQUIRY = [];
+  return true;
+}
 
 // ── 버그/이슈 키워드 (Jira [시스템]/[UI]/[인게임] 패턴 반영) ─────
 const BUG_KW = [
@@ -1326,11 +1350,15 @@ document.querySelectorAll('.cat-btn').forEach(btn => {
 });
 
 // ── 학습된 키워드 패널 렌더링 ─────────────────────────────────
-function renderLearnedPanel() {
+function renderLearnedPanel(loading = false) {
   const body = document.getElementById('learnedPanelBody');
   if (!body) return;
+  if (loading) {
+    body.innerHTML = '<div style="color:#6e7681">🔄 서버에서 공유 키워드 불러오는 중...</div>';
+    return;
+  }
   if (LEARNED.BUG.length === 0 && LEARNED.INQUIRY.length === 0) {
-    body.innerHTML = '<div style="color:#6e7681">학습된 키워드 없음. 결과 행의 📌 버튼으로 추가하세요.</div>';
+    body.innerHTML = '<div style="color:#6e7681">공유 학습 키워드 없음. 결과 행의 📌 버튼으로 추가하세요.</div>';
     return;
   }
   const chip = (cat, kw) => `<span class="learned-chip" data-cat="${cat}" data-kw="${escHtml(kw)}">${escHtml(kw)} <span class="x">×</span></span>`;
@@ -1347,28 +1375,35 @@ function renderLearnedPanel() {
   }
   body.innerHTML = html;
 }
-renderLearnedPanel();
+renderLearnedPanel(true); // 로딩 중 표시
+loadLearned();            // 서버에서 비동기 로드
 
-// 학습 칩 삭제 (× 클릭)
-document.addEventListener('click', (e) => {
+// 학습 칩 삭제 (× 클릭 — 비밀번호 필요)
+document.addEventListener('click', async (e) => {
   const x = e.target.closest('.learned-chip .x');
   if (!x) return;
   const chip = x.parentElement;
-  if (removeLearnedKw(chip.dataset.cat, chip.dataset.kw)) renderLearnedPanel();
+  const pw = prompt('삭제 비밀번호를 입력하세요:');
+  if (!pw) return;
+  const result = await removeLearnedKw(chip.dataset.cat, chip.dataset.kw, pw);
+  if (result === 'wrong_pw') alert('비밀번호가 틀렸습니다.');
+  else if (!result) alert('삭제 실패. 잠시 후 다시 시도하세요.');
+  else renderLearnedPanel();
 });
 
-// 전체 삭제 버튼
-document.getElementById('clearLearnedBtn')?.addEventListener('click', () => {
+// 전체 삭제 버튼 (비밀번호 필요)
+document.getElementById('clearLearnedBtn')?.addEventListener('click', async () => {
   if (!LEARNED.BUG.length && !LEARNED.INQUIRY.length) return;
-  if (!confirm(`학습된 키워드 ${LEARNED.BUG.length + LEARNED.INQUIRY.length}개를 모두 삭제할까요?`)) return;
-  LEARNED.BUG.length = 0;
-  LEARNED.INQUIRY.length = 0;
-  saveLearned();
-  renderLearnedPanel();
+  const pw = prompt(`공유 키워드 전체(${LEARNED.BUG.length + LEARNED.INQUIRY.length}개)를 삭제합니다.\n삭제 비밀번호를 입력하세요:`);
+  if (!pw) return;
+  const result = await clearAllLearned(pw);
+  if (result === 'wrong_pw') alert('비밀번호가 틀렸습니다.');
+  else if (!result) alert('삭제 실패. 잠시 후 다시 시도하세요.');
+  else renderLearnedPanel();
 });
 
 // 📌 학습 버튼 클릭 (결과 행)
-document.addEventListener('click', (e) => {
+document.addEventListener('click', async (e) => {
   const btn = e.target.closest('.learn-btn');
   if (!btn) return;
   const idx = parseInt(btn.dataset.idx, 10);
@@ -1385,11 +1420,11 @@ document.addEventListener('click', (e) => {
   if (!phrase) return;
 
   const catKey = catChoice === '1' ? 'BUG' : 'INQUIRY';
-  if (addLearnedKw(catKey, phrase)) {
+  if (await addLearnedKw(catKey, phrase)) {
     renderLearnedPanel();
-    alert(`📌 학습 완료 → ${catKey === 'BUG' ? '🐛 버그' : '❓ 문의'}: "${phrase.trim()}"\n\n다음 수집부터 분류·2차 필터에 반영됩니다.`);
+    alert(`📌 학습 완료 → ${catKey === 'BUG' ? '🐛 버그' : '❓ 문의'}: "${phrase.trim()}"\n\n모든 사용자에게 즉시 반영됩니다.`);
   } else {
-    alert('이미 등록된 키워드이거나 길이가 너무 짧습니다.');
+    alert('이미 등록된 키워드이거나 서버 오류가 발생했습니다.');
   }
 });
 
