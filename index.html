@@ -76,12 +76,6 @@ input[type=text]::placeholder{color:#484f58}
 .site-label strong{font-size:12px;color:#e6edf3}
 .site-label small{font-size:10px;color:#6e7681}
 
-/* ── Category buttons ────────────────────────────────────── */
-.cat-row{display:flex;gap:8px;flex-wrap:wrap}
-.cat-btn{padding:7px 18px;border-radius:20px;border:1.5px solid #30363d;background:transparent;color:#8b949e;cursor:pointer;font-size:12px;font-weight:500;transition:all .2s}
-.cat-btn:hover{border-color:#58a6ff;color:#58a6ff}
-.cat-btn.on{border-color:#58a6ff;color:#58a6ff;background:rgba(88,166,255,.1)}
-
 /* ── Start button ────────────────────────────────────────── */
 .btn-start{width:100%;padding:14px;background:linear-gradient(135deg,#1f6feb,#388bfd);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:opacity .2s,transform .1s;letter-spacing:.2px}
 .btn-start:hover:not(:disabled){opacity:.9;transform:translateY(-1px)}
@@ -115,20 +109,6 @@ thead th{background:#21262d;padding:9px 12px;text-align:left;color:#8b949e;font-
 tbody td{padding:9px 12px;border-bottom:1px solid #161b22;vertical-align:top}
 tbody tr:last-child td{border-bottom:none}
 tbody tr:hover td{background:#1c2128}
-.tag{display:inline-block;padding:2px 7px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap}
-.tag-bug-issue{background:#3d1f1f;color:#f85149}
-.tag-opinion-review{background:#1f2e43;color:#79c0ff}
-.tag-inquiry{background:#1f2d1f;color:#56d364}
-.learned-chip{display:inline-block;padding:2px 8px;margin:2px 3px;border-radius:10px;background:#161b22;border:1px solid #30363d;font-size:11px;color:#c9d1d9}
-.learned-chip .x{margin-left:4px;color:#8b949e;cursor:pointer;font-weight:700}
-.learned-chip .x:hover{color:#f85149}
-.learn-btn{background:transparent;border:1px solid #30363d;color:#8b949e;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:11px}
-.learn-btn:hover{border-color:#58a6ff;color:#58a6ff}
-.sev{font-size:11px;font-weight:700}
-.sev-최상{color:#f85149}
-.sev-상{color:#e3b341}
-.sev-중{color:#79c0ff}
-.sev-하{color:#7ee787}
 .game-chip{display:inline-block;padding:1px 7px;border-radius:6px;font-size:10px;font-weight:600;white-space:nowrap}
 .game-컴프야V{background:#0d2137;color:#58a6ff}
 .game-MLB라이벌{background:#2d1505;color:#ffa657}
@@ -169,7 +149,7 @@ tbody tr:hover td{background:#1c2128}
 <header>
   <div class="header-left">
     <h1>⚾ 야구 게임 커뮤니티 수집 툴</h1>
-    <span class="badge">v4.0</span>
+    <span class="badge">v5.0</span>
   </div>
   <div class="header-right">DC인사이드 · 공식 커뮤니티 · 네이버카페</div>
 </header>
@@ -271,7 +251,7 @@ tbody tr:hover td{background:#1c2128}
           <input type="text" id="cafeId_cpb26" value="27851354">
         </div>
         <div class="field">
-          <label class="field-label">📋 메뉴 ID (31/33=버그/제보, 15=건의, 0=전체)</label>
+          <label class="field-label">📋 메뉴 ID (0=전체, 16=질문, 5=공지)</label>
           <input type="number" id="menuId_cpb26" value="0" min="0" style="max-width:120px">
         </div>
       </div>
@@ -286,7 +266,7 @@ tbody tr:hover td{background:#1c2128}
           <input type="text" id="cafeId_9innings" value="28683505">
         </div>
         <div class="field">
-          <label class="field-label">📋 메뉴 ID (31/33=버그/제보, 22=건의, 0=전체)</label>
+          <label class="field-label">📋 메뉴 ID (0=전체)</label>
           <input type="number" id="menuId_9innings" value="0" min="0" style="max-width:120px">
         </div>
       </div>
@@ -322,39 +302,11 @@ tbody tr:hover td{background:#1c2128}
 
   <!-- ── 검색어 ── -->
   <div class="card">
-    <div class="card-title">🔍 검색어 (선택)</div>
+    <div class="card-title">🔍 검색어 <span style="font-size:11px;font-weight:400;color:#6e7681">(선택 — 미입력 시 전체 수집)</span></div>
     <div class="field">
-      <label class="field-label">키워드 — 쉼표/공백 구분 &nbsp;·&nbsp; 전체 게시글 수집 후 제목·본문 필터 (미입력 시 전체 표시) &nbsp;·&nbsp; 카테고리는 자동 분류</label>
-      <input type="text" id="keywords" placeholder="예: 버그, 크래시, 결제 오류 (미입력 시 전체 수집)">
+      <label class="field-label">키워드 — 쉼표 또는 공백으로 구분 · 입력 시 제목·본문에 해당 키워드가 포함된 글만 표시</label>
+      <input type="text" id="keywords" placeholder="예: 버그, 크래시, 결제 오류 — 비워두면 기간 내 전체 게시글 수집">
     </div>
-  </div>
-
-  <!-- ── 카테고리 필터 ── -->
-  <div class="card">
-    <div class="card-title">🏷️ 카테고리 필터</div>
-    <div class="cat-row" id="catRow">
-      <button class="cat-btn on" data-cat="버그/이슈">🐛 버그/이슈</button>
-      <button class="cat-btn on" data-cat="문의/질문">❓ 문의/질문</button>
-      <button class="cat-btn on" data-cat="의견/평가">💬 의견/평가</button>
-    </div>
-  </div>
-
-  <!-- ── 2차 필터링 (정밀 매칭) ── -->
-  <div class="card">
-    <div class="card-title">🎯 2차 필터링 (정밀 매칭)</div>
-    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
-      <input type="checkbox" id="enableSecondaryFilter" checked style="width:15px;height:15px;accent-color:#58a6ff;cursor:pointer">
-      <span>1차 수집 결과 중 <strong>제목·본문·댓글</strong>에 BUG/INQUIRY 키워드(+학습된 키워드)와 매칭되는 글만 표시</span>
-    </label>
-    <div style="font-size:11px;color:#6e7681;margin-top:6px;line-height:1.5">
-      ※ 의견/평가로 자동 분류된 글 중 버그·문의 표현이 없는 글을 제외합니다. 결과 행의 📌 버튼으로 새 표현을 학습시킬 수 있습니다.
-    </div>
-  </div>
-
-  <!-- ── 학습된 키워드 ── -->
-  <div class="card">
-    <div class="card-title">🧠 학습된 키워드 <button id="clearLearnedBtn" style="font-size:11px;padding:3px 10px;margin-left:8px;background:transparent;border:1px solid #30363d;color:#8b949e;border-radius:4px;cursor:pointer">전체 삭제</button></div>
-    <div id="learnedPanelBody" style="font-size:12px;line-height:1.9"></div>
   </div>
 
   <!-- ── 시작 버튼 ── -->
@@ -382,7 +334,7 @@ tbody tr:hover td{background:#1c2128}
     <div class="table-scroll">
       <table>
         <thead><tr>
-          <th>#</th><th>게임</th><th>제목</th><th>카테고리</th><th>심각도</th><th>출처</th><th>날짜</th><th>학습</th>
+          <th>#</th><th>게임</th><th>제목</th><th>출처</th><th>날짜</th>
         </tr></thead>
         <tbody id="resultBody"></tbody>
       </table>
@@ -406,12 +358,12 @@ const esc   = s  => String(s||'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').rep
 const stripTags = s => s.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
 const today = () => new Date().toISOString().slice(0,10);
 
-// ── 레벤슈타인 거리 (편집 거리) ─────────────────────────────
+// ── 레벤슈타인 거리 ──────────────────────────────────────────
 function levenshtein(a, b) {
   const m = a.length, n = b.length;
   if (m === 0) return n;
   if (n === 0) return m;
-  if (Math.abs(m - n) > 1) return 2; // 거리 > 1 조기 기각
+  if (Math.abs(m - n) > 1) return 2;
   let prev = Array.from({length: n + 1}, (_, i) => i);
   for (let i = 1; i <= m; i++) {
     const curr = [i];
@@ -424,9 +376,7 @@ function levenshtein(a, b) {
   return prev[n];
 }
 
-// ── 퍼지 포함 검사 ───────────────────────────────────────────
-// 정확 일치 → 3자 이상 키워드는 편집거리 1 이내 부분 문자열 탐색
-// (치환 / 삽입 / 삭제 1회 오차 허용 → 맞춤법 오류·오타 수용)
+// ── 퍼지 포함 검사 (편집거리 1 이내 오타 허용) ───────────────
 function fuzzyIncludes(text, keyword) {
   if (text.includes(keyword)) return true;
   if (keyword.length < 3) return false;
@@ -441,11 +391,7 @@ function fuzzyIncludes(text, keyword) {
 }
 
 // ── CORS proxy ──────────────────────────────────────────────
-// 1순위: Vercel 서버리스 프록시(/api/proxy) — 공개 프록시 장애 회피
-// 2순위: 공개 프록시(allorigins/codetabs/corsproxy) — 로컬·정적 호스팅 호환
 async function proxyGet(url, timeout=10000) {
-  // 1순위: 별칭 경로 /relay (사파리 ad/contents blocker가 /api/* 패턴을 차단할 때 우회)
-  // 2순위: 직접 경로 /api/proxy
   let lastError = '';
   for (const proxyPath of ['/relay', '/api/proxy']) {
     try {
@@ -467,9 +413,7 @@ async function proxyGet(url, timeout=10000) {
     }
   }
   console.warn(`[proxyGet] 자체 프록시 실패: ${lastError}, 공개 프록시로 폴백`);
-  if (typeof window.__proxyDiag === 'function') window.__proxyDiag('proxyGet 실패: ' + lastError);
 
-  // 2순위: 공개 CORS 프록시
   const proxies = [
     `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
     `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
@@ -490,7 +434,6 @@ async function proxyGet(url, timeout=10000) {
 }
 
 async function proxyPost(url, body, extraHeaders={}, timeout=10000) {
-  // 1순위: 별칭 경로 /relay  2순위: 직접 경로 /api/proxy
   let lastError = '';
   const refQ = extraHeaders.Referer ? `&referer=${encodeURIComponent(extraHeaders.Referer)}` : '';
   for (const proxyPath of ['/relay', '/api/proxy']) {
@@ -516,9 +459,7 @@ async function proxyPost(url, body, extraHeaders={}, timeout=10000) {
     }
   }
   console.warn(`[proxyPost] 자체 프록시 실패: ${lastError}, 공개 프록시로 폴백`);
-  if (typeof window.__proxyDiag === 'function') window.__proxyDiag('proxyPost 실패: ' + lastError);
 
-  // 2순위: 공개 CORS 프록시
   const proxies = [
     enc => `https://corsproxy.io/?url=${enc}`,
     enc => `https://api.allorigins.win/raw?url=${enc}`,
@@ -537,188 +478,20 @@ async function proxyPost(url, body, extraHeaders={}, timeout=10000) {
       clearTimeout(tid);
       const text = await r.text();
       if (text && text.length > 50) return text;
-      console.warn(`[proxyPost] ${px} → 응답 짧음(${text.length}자), 다음 프록시 시도`);
     } catch(e) {
-      console.warn(`[proxyPost] ${px} → ${e.message}, 다음 프록시 시도`);
+      console.warn(`[proxyPost] ${px} → ${e.message}`);
     }
   }
   return '';
 }
 
-// ═══════════════════════════════════════════════════════════════
-//  CLASSIFIERS
-// ═══════════════════════════════════════════════════════════════
-
-// ── 학습된 키워드 저장소 (localStorage 기반 자가 학습) ─────────
-// 사용자가 결과 행에서 📌 버튼으로 추가한 키워드를 누적 저장.
-// 다음 수집부터 classifyCategory + secondaryFilter에 자동 반영됨.
-const LEARNED_STORAGE_KEY = 'collector.learnedKW.v1';
-const LEARNED = { BUG: [], INQUIRY: [] };
-
-function loadLearned() {
-  try {
-    const raw = localStorage.getItem(LEARNED_STORAGE_KEY);
-    if (!raw) return;
-    const j = JSON.parse(raw);
-    LEARNED.BUG     = Array.isArray(j.BUG)     ? j.BUG.map(s=>String(s).toLowerCase()) : [];
-    LEARNED.INQUIRY = Array.isArray(j.INQUIRY) ? j.INQUIRY.map(s=>String(s).toLowerCase()) : [];
-  } catch {}
-}
-function saveLearned() {
-  try { localStorage.setItem(LEARNED_STORAGE_KEY, JSON.stringify(LEARNED)); } catch {}
-}
-function addLearnedKw(cat, phrase) {
-  const arr = cat === 'BUG' ? LEARNED.BUG : LEARNED.INQUIRY;
-  const t = String(phrase||'').trim().toLowerCase();
-  if (!t || t.length < 2 || arr.includes(t)) return false;
-  arr.push(t); saveLearned(); return true;
-}
-function removeLearnedKw(cat, phrase) {
-  const arr = cat === 'BUG' ? LEARNED.BUG : LEARNED.INQUIRY;
-  const i = arr.indexOf(phrase);
-  if (i < 0) return false;
-  arr.splice(i,1); saveLearned(); return true;
-}
-loadLearned();
-
-// ── 버그/이슈 키워드 (Jira [시스템]/[UI]/[인게임] 패턴 반영) ─────
-const BUG_KW = [
-  // 명시적 버그 표현
-  '버그','오류','에러','error','bug','이슈','issue',
-  '크래시','crash','강종','강제종료','팅김','튕김','튕겨','팅겨',
-  '프리징','freezing','멈춤','멈춰','먹통','멈첬','응답없',
-  // 로딩/접속
-  '무한로딩','로딩 안','로딩안','로딩중','무한 로딩',
-  '접속 불가','접속이 안','접속안','로그인 불가','로그인 안','연결 안','연결안',
-  '끊겨','끊김','끊힘','접속이 끊',
-  // 동작 불가 (Jira [시스템] "동작하지 않는", "눌리지 않는")
-  '안됨','안돼','안되는','안되네','않아요','않습니다','안 돼','안 됩니다',
-  '작동 안','작동안','클릭 안','눌러도 안','안 눌','동작이 안','동작안',
-  '눌리지 않','눌러지지','반응이 없','반응없음','반응없어',
-  // 표시/화면 (Jira [UI] "미노출", "어색하게 노출", "겹쳐 노출")
-  '화면이 안','화면 깨','깨짐','안 보임','보이지 않','표시 안','표시가 안',
-  '미노출','노출 안','오작동',
-  '어색하게','어색하게 나와','어색하게 보','이상하게 나와','이상하게 보여',
-  '겹쳐','겹쳐서','겹침','겹치는','겹치네','겹쳐 보',
-  '비정상','비정상적','잘못 나와','잘못 표시','잘못표시','잘못 노출',
-  '짤려','잘려','짤려서','텍스트 짤','문구 짤',
-  // 적용/반영 불가 (Jira [시스템] "적용되지 않는", "반영이 안")
-  '반영이 안','반영안','적용이 안','적용안','적용되지','미반영',
-  '해금이 안','해금 안','잠겨있','잠겨 있',
-  // 진행/기능 불가
-  '진행불가','진행 불가','진행이 안','진행이안',
-  // 화면 표시 관련
-  '레드닷','빈칸','빈 칸','누락',
-  '팝업 오류','팝업오류',
-  // 데이터/결제
-  '데이터 사라','초기화됨','초기화 되',
-  '결제 오류','결제 안','구매 안','구매오류',
-  '결제했는데','결제 후 아이템','아이템 안 들어','아이템이 안','아이템 못 받',
-  '보상 안 들어','보상이 안','안 들어왔','안들어왔',
-  '미수령','미지급','미전달','수령이 안','지급이 안','지급 안',
-  // 상이/오류
-  '상이','기획과 다른','기획이랑 다른',
-  // 싱크/사운드 (Jira [인게임])
-  '싱크가 안','싱크 오류','싱크 안 맞','소리가 없','소리 없음','소리가 안','사운드 없','사운드 오류',
-  // 신고/제보
-  '신고합니다','제보합니다','제보드립니다','신고드립니다',
-];
-
-// ── 문의/질문 키워드 (Jira [문의] 패턴 — 의도 확인·방법 문의) ─────
-const INQUIRY_KW = [
-  // 의도 확인 (Jira "기획의도인지 문의", "의도된 사항일지 문의")
-  '의도된건가요','의도한건가요','의도적인가요','기획 의도','의도가 뭔가요',
-  '원래 이런건가요','원래 이런가요','원래 그런건가요','원래 그런가요',
-  '원래 안 되는건가요','원래 안되는건가요','원래 이렇게',
-  '이게 정상인가요','이거 정상인가요','정상적인건가요','정상인건가요',
-  '이게 맞나요','이거 맞나요','이게 맞는건가요','맞는건가요','맞는건지',
-  '버그인가요','버그인건가요','이게 버그인지','버그인지',
-  // 수정/패치 일정 문의 (Jira [문의] "언제 수정될지 문의")
-  '언제 수정','언제 고쳐','언제 됩니다','언제 될까요','언제 되나요',
-  '언제 패치','언제 업뎃','언제 업데이트','수정 예정','패치 예정',
-  // 일반 질문
-  '궁금한게','궁금한 게','궁금한데','궁금합니다','궁금해서','궁금해요',
-  '질문있','질문 있','질문드립','질문합니다',
-  '여쭤보고','여쭤봐도','여쭤봅니다','여쭤드립',
-  '문의드립','문의합니다','문의입니다',
-  // 방법/기준 문의
-  '어떻게 하나요','어떻게 하는건가요','어떻게 하면','방법이 있나요','방법 알려',
-  '어떻게 된건가요','어떻게 됐나요','어떻게 된거','이게 왜','왜 이렇게','왜 이런',
-  // 확인 요청 (Jira "확인 부탁드립니다", "검토 부탁드립니다")
-  '확인해주세요','확인 부탁','알려주세요','알려주시면','알려줘','알려주시겠',
-  '검토해주','검토 부탁','검토 부탁드',
-];
-
-// ── 의견/평가 키워드 (Jira [의견]/[요청] 패턴 반영) ─────────────
-const OPINION_KW = [
-  // 건의/요청 (Jira [요청] "개선을 요청드립니다", "편의성을 제공하자는 의견")
-  '건의','요청','제안','피드백','suggestion','개선 요청','기능 추가',
-  '편의성','편의 기능','편의 개선','유저 편의',
-  '해줬으면','줬으면','하면 좋겠','했으면 좋겠','있으면 좋겠',
-  '됐으면','됐으면 좋겠','좋겠습니다','좋겠어요','좋겠네요',
-  '추가해주','추가됐으면','추가 부탁','개선해주','개선됐으면','개선해달','개선하면',
-  '넣어주세요','넣어줬으면','만들어주','해주세요','해주셨으면','해주면',
-  '없나요','왜없나','왜 없나','없을까요','언제 추가','언제쯤','도입해주',
-  '바랍니다','바래요','바라겠습니다','부탁드립니다','부탁합니다','부탁이에요',
-  // 의견 표명 (Jira [의견] "의견입니다", "편의성을 제공하자는 의견")
-  '생각인데','의견인데','의견입니다','어떻게 생각','제 생각엔',
-  // 후기/평가
-  '후기','리뷰','평가','소감','느낌','감상','총평','종합 평가',
-  '패치 후','패치하고','패치노트','업데이트 후','업데이트하고','업뎃 후','업뎃하고',
-  '업데이트 이후','업뎃 이후','업데이트 전후','패치 이후',
-  '재밌다','재밌어','재밌네','재미있다','재미있어','재미없','재미가 없','재미가없',
-  '별로다','별로네','별로임','별로인','실망이','실망스','만족스','만족해',
-  '좋아졌','나빠졌','망했','망해가','흥미롭','흥미없','흥미가 없',
-  '괜찮아졌','나쁘지 않','나쁘지않','해볼만','할만하',
-  '별점','점수','평점','추천','비추',
-  '해보니','해봤는데','해봤더니','해보면','플레이해보',
-  '전반적으로','전체적으로',
-];
-
+// ── 게임 분류 (Excel 시트 구성용) ───────────────────────────
 const GAME_MAP = {
   '컴프야V':    ['컴프야v','cpyv','v26','cpbv','컴투스프로야구v'],
   'MLB라이벌':  ['라이벌','rivals','irivals','9이닝스라이벌'],
   'MLB9이닝스': ['9이닝스','mlb9i','9innings','mlbgame'],
   '컴프야26':   ['컴프야26','cpb26','컴2026'],
 };
-
-const SEV_CRITICAL = ['결제','과금','충전','접속 불가','로그인 불가','크래시','crash','초기화','데이터 유실','데이터 사라','critical','치명'];
-const SEV_HIGH     = ['오류','error','버그','bug','강종','강제종료','먹통','팅김','튕김','프리징','안됨','불가'];
-
-function classifyCategory(title, body, activeFilters, strict = false) {
-  const t = (title + ' ' + body).toLowerCase();
-  // strict=true: BUG_KW/OPINION_KW 매칭 필수 → 미매칭 글 null로 제외
-  // strict=false: 매칭 안되면 기본값 '의견/평가'로 처리 (수집 글 보존)
-  // 분류 우선순위: 버그/이슈 > 문의/질문 > 의견/평가 > default(의견/평가)
-  // 각 카테고리별 학습된 키워드(LEARNED.BUG / LEARNED.INQUIRY)도 함께 검사
-  let cat = strict ? null : '의견/평가';
-  if (BUG_KW.some(k => fuzzyIncludes(t, k)) || LEARNED.BUG.some(k => fuzzyIncludes(t, k))) {
-    cat = '버그/이슈';
-  } else if (INQUIRY_KW.some(k => fuzzyIncludes(t, k)) || LEARNED.INQUIRY.some(k => fuzzyIncludes(t, k))) {
-    cat = '문의/질문';
-  } else if (OPINION_KW.some(k => fuzzyIncludes(t, k))) {
-    cat = '의견/평가';
-  }
-  if (cat === null) return null;
-  if (activeFilters.has(cat)) return cat;
-  return null;
-}
-
-// ── 2차 필터링 ─────────────────────────────────────────────────
-// 1차 수집 결과에서 제목·본문·댓글에 BUG_KW + INQUIRY_KW (+학습된 키워드)
-// 매칭이 있는 글만 통과시킴. 의견/평가 default 분류 글 중 정밀 매칭이
-// 없는 글을 제외하여 노이즈 감소.
-function secondaryFilter(post) {
-  const t = (
-    (post.title || '') + ' ' +
-    (post.body  || '') + ' ' +
-    (post.comments || '')
-  ).toLowerCase();
-  return BUG_KW.some(k => fuzzyIncludes(t, k))
-      || INQUIRY_KW.some(k => fuzzyIncludes(t, k))
-      || LEARNED.BUG.some(k => fuzzyIncludes(t, k))
-      || LEARNED.INQUIRY.some(k => fuzzyIncludes(t, k));
-}
 
 function classifyGame(title, body, hint='') {
   const t = (title+' '+body+' '+hint).toLowerCase();
@@ -728,13 +501,6 @@ function classifyGame(title, body, hint='') {
   return '기타';
 }
 
-function classifySeverity(title, body) {
-  const t = (title+' '+body).toLowerCase();
-  if (SEV_CRITICAL.some(k => t.includes(k))) return '최상';
-  if (SEV_HIGH.some(k => t.includes(k)))     return '상';
-  return '중';
-}
-
 // ── 사용자 키워드 파싱 ─────────────────────────────────────
 function parseUserKeywords() {
   const raw = document.getElementById('keywords').value;
@@ -742,31 +508,25 @@ function parseUserKeywords() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  DATE UTILITIES  — 모든 스크래퍼 공통 날짜 처리
+//  DATE UTILITIES
 // ═══════════════════════════════════════════════════════════════
 const DATE = {
-  // 다양한 형식을 YYYY-MM-DD로 파싱, 실패 시 null
   parse(raw) {
     const s = String(raw || '').trim();
     if (!s) return null;
     const yr = new Date().getFullYear();
 
-    // HH:MM[:SS] — 오늘 게시물 (DC인사이드, 공식커뮤)
     if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) return today();
 
-    // YYYY-MM-DD / YYYY.MM.DD — 4자리 연도 (우선 매칭)
     let m = s.match(/^(20\d{2})[-.\/](\d{2})[-.\/](\d{2})/);
     if (m) return `${m[1]}-${m[2]}-${m[3]}`;
 
-    // YY.MM.DD / YY-MM-DD — 2자리 연도
     m = s.match(/^(\d{2})[-.\/](\d{2})[-.\/](\d{2})/);
     if (m) return `20${m[1]}-${m[2]}-${m[3]}`;
 
-    // MM.DD / MM-DD — 당해연도 게시물 (DC 올해 날짜)
     m = s.match(/^(\d{1,2})[-.\/](\d{2})$/);
     if (m) return `${yr}-${m[1].padStart(2,'0')}-${m[2]}`;
 
-    // YYYYMMDD — 네이버 postdate 형식
     const digits = s.replace(/\D/g, '');
     if (digits.length === 8 && digits !== '00000000') {
       return `${digits.slice(0,4)}-${digits.slice(4,6)}-${digits.slice(6,8)}`;
@@ -775,12 +535,10 @@ const DATE = {
     return null;
   },
 
-  // dateStr이 [from, to] 범위 내에 있는지 확인
   inRange(dateStr, from, to) {
     return !!dateStr && dateStr >= from && dateStr <= to;
   },
 
-  // 합리성 검사 — 미래 날짜이거나 2010년 이전이면 비정상 데이터로 판단
   isReasonable(dateStr) {
     return !!dateStr && dateStr >= '2010-01-01' && dateStr <= today();
   },
@@ -812,7 +570,6 @@ async function scrapeDcinside(siteKey, dateFrom, dateTo, log) {
     let oldestDate = '9999', pageCount = 0;
 
     for (const row of rows) {
-      // 공지/설문/이벤트 행 스킵 (gall_num 셀이 숫자가 아니면 공지 등)
       const numM = row.match(/<td[^>]*class="[^"]*gall_num[^"]*"[^>]*>([\s\S]*?)<\/td>/);
       if (numM) {
         const numText = stripTags(numM[1]);
@@ -851,9 +608,7 @@ async function scrapeDcinside(siteKey, dateFrom, dateTo, log) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  컴프야V 공식 커뮤니티 SCRAPER  — /board/all 통합 게시판
-//  - getBoardContents API + idx=all 로 전체글 한 번에 수집
-//  - 키워드 필터 없이 날짜 범위 내 모든 게시글 수집
+//  컴프야V 공식 커뮤니티 SCRAPER
 // ═══════════════════════════════════════════════════════════════
 async function scrapeCpbvOfficial(dateFrom, dateTo, log) {
   const BASE = 'https://cpbv-community.com2us.com';
@@ -861,7 +616,6 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log) {
 
   log(`컴프야V 공식 [전체글] (idx=all)`, 'info');
 
-  // ── JSON API 경로 ──────────────────────────────────────────────
   let apiSuccess = false;
   for (let page=1; page<=10; page++) {
     const body = new URLSearchParams({
@@ -908,7 +662,6 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log) {
     await sleep(500);
   }
 
-  // ── HTML 폴백 (JSON API 실패 시) ───────────────────────────────
   if (!apiSuccess) {
     log(`  JSON API 불가 → HTML 게시판 페이지 폴백`, 'warn');
     const linkRe = /href="(\/board\/(\d+)\/(\d{5,}))"/g;
@@ -925,7 +678,6 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log) {
         if (seen.has(href)) continue;
         seen.add(href);
 
-        // 링크 앞뒤 컨텍스트에서 제목·날짜 추출
         const after  = html.slice(m.index, Math.min(html.length, m.index + 400));
         const before = html.slice(Math.max(0, m.index - 400), m.index + 400);
 
@@ -958,9 +710,7 @@ async function scrapeCpbvOfficial(dateFrom, dateTo, log) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  MLB라이벌 공식 커뮤니티 SCRAPER  — /ko/board/all 통합 게시판
-//  - getBoardList API + board_idx=all 로 전체글 한 번에 수집
-//  - 키워드 필터 없이 날짜 범위 내 모든 게시글 수집
+//  MLB라이벌 공식 커뮤니티 SCRAPER
 // ═══════════════════════════════════════════════════════════════
 async function scrapeRivalsOfficial(dateFrom, dateTo, log) {
   const BASE = 'https://community.withhive.com';
@@ -970,7 +720,6 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log) {
 
   log(`MLB라이벌 공식 [전체글] (board_idx=all)`, 'info');
 
-  // ── JSON API 경로 ──────────────────────────────────────────────
   let apiSuccess = false;
   for (let page=1; page<=10; page++) {
     const body = new URLSearchParams({
@@ -1002,18 +751,14 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log) {
       if (!title || !postId) continue;
       const bidx    = item.board_idx;
       const postUrl = `${BASE}/${SLUG}/board/${bidx}/${postId}`;
-      const thumb   = decodeURIComponent(item.thumb || '');
       const bodyHtml= item.body_noscript || '';
       const bodyText= esc(stripTags(bodyHtml)).slice(0,500);
-      const imgs    = [...bodyHtml.matchAll(/<img[^>]*src=["']([^"']+)["']/g)].map(m=>m[1])
-                      .filter(u=>u.includes('withhive.com')).slice(0,2);
-      if (thumb.includes('withhive.com')) imgs.unshift(thumb);
 
       posts.push({
         title, url:postUrl, date:dateStr,
         views: String(item.view_count || 0),
         source: 'MLB라이벌 공식커뮤', game: 'MLB라이벌', board: `board_${bidx}`,
-        body: bodyText, images: imgs.slice(0,2),
+        body: bodyText, images: [],
       });
       pageCount++;
     }
@@ -1023,7 +768,6 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log) {
     await sleep(500);
   }
 
-  // ── HTML 폴백 (JSON API 실패 시) ───────────────────────────────
   if (!apiSuccess) {
     log(`  JSON API 불가 → HTML 게시판 페이지 폴백`, 'warn');
     const linkRe = /href="(\/MLB9IRIVALS\/(?:ko\/)?board\/(\d+)\/(\d{5,}))"/g;
@@ -1073,162 +817,116 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log) {
 
 // ═══════════════════════════════════════════════════════════════
 //  네이버카페 API SCRAPER (Vercel 서버리스 경유)
-//  - cafeId: 수집 대상 카페 numeric ID (27851354 / 28683505)
-//  - customKeywords: 사용자 검색어 (없으면 기본 키워드 사용)
 // ═══════════════════════════════════════════════════════════════
-// search.naver.com 카페 검색은 cafe:CAFEID 단독 query로 카페 전체글을 기간
-// 필터 기준으로 가져올 수 있다 (검증됨). 키워드 미입력 시 빈 키워드 한 번만
-// 호출 → 카페 전체 수집. 사용자가 키워드 입력하면 그 키워드들만 순회.
 const NAVER_PAGE_SIZE  = 100;
 const NAVER_MAX_START  = 301;
 
-// options: { cookie, menuId, pageMode, pageCount }
-async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, log, statusKey, customKeywords=[], options={}) {
+async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, log, statusKey, options={}) {
   const { cookie='', menuId=0, pageMode=false, pageCount=2 } = options;
-  const modeLabel = pageMode ? `${pageCount}페이지 모드` : '기간 모드';
-  const menuLabel = menuId ? ` (메뉴ID:${menuId})` : '';
-  const cookieLabel = cookie ? ' 🍪쿠키' : ' (쿠키없음)';
+  const modeLabel  = pageMode ? `${pageCount}페이지 모드` : '기간 모드';
+  const menuLabel  = menuId ? ` (메뉴ID:${menuId})` : '';
+  const cookieLabel = cookie ? ' 🍪쿠키' : '';
   log(`네이버카페 [${cafeName}] 수집 시작 (cafeid:${cafeId}${menuLabel}${cookieLabel}) — ${modeLabel}`, 'info');
 
-  // 네이버 카페는 키워드 필터링 없이 항상 카페 전체글 수집 (기간 필터만 적용)
-  // 다른 사이트(DC/공식)와 달리 keyword를 무시함 — 사용자 의도: "수집 기간 내 모든 게시물"
-  const keywords = [''];
-  if (customKeywords.length > 0) {
-    log(`  (입력 키워드 ${customKeywords.length}개는 무시 — 네이버 카페는 전체글 모드 고정)`);
-  }
-  const posts     = [];
-  const seen      = new Set();
+  const posts  = [];
+  const seen   = new Set();
   const cleanHtml = s => s.replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
 
-  // 페이지 모드: 날짜 범위 무시, pageCount 페이지만 수집
   const effectiveDateFrom = pageMode ? '' : dateFrom;
   const effectiveDateTo   = pageMode ? '' : dateTo;
   const maxStart = pageMode ? (pageCount * NAVER_PAGE_SIZE + 1) : NAVER_MAX_START;
 
-  for (const kw of keywords) {
-    let start = 1;
-    while (start < maxStart) {
-      try {
-        const params = new URLSearchParams({ keyword: kw, cafeId, menuId, display: NAVER_PAGE_SIZE, start, dateFrom: effectiveDateFrom, dateTo: effectiveDateTo });
-        if (cookie) params.set('cookie', cookie);
-        // 1순위 /cafe (별칭) → 2순위 /api/naver — 사파리 /api/* 차단 회피
-        let res = null, lastErr = '';
-        for (const apiPath of ['/cafe', '/api/naver']) {
-          try {
-            const ctrl = new AbortController();
-            const tid  = setTimeout(() => ctrl.abort(), 15000);
-            res = await fetch(`${apiPath}?${params}`, {
-              signal: ctrl.signal, cache: 'no-store', credentials: 'omit'
-            });
-            clearTimeout(tid);
-            if (res && res.ok) break;
-            lastErr = `[${apiPath}] HTTP ${res?.status}`;
-          } catch(e) {
-            lastErr = `[${apiPath}] ${e.name||'Error'}:${e.message}`;
-            res = null;
-          }
-        }
-        if (!res || !res.ok) {
-          const errText = res ? await res.text().catch(()=>'') : '';
-          log(`  → API 오류 ${lastErr} ${errText.slice(0,120)}`, 'err');
-          break;
-        }
-        const data = await res.json();
-        // API 자체 오류 응답
-        if (data.errorMessage || data.error) {
-          log(`  → 네이버 API 오류: ${data.errorMessage || data.error}`, 'err');
-          break;
-        }
-        const items = data.items || [];
-        const rawCount = (typeof data._rawCount === 'number') ? data._rawCount : items.length;
-        const source = data._source || 'naver';
+  let start = 1;
+  while (start < maxStart) {
+    try {
+      const params = new URLSearchParams({ keyword: '', cafeId, menuId, display: NAVER_PAGE_SIZE, start, dateFrom: effectiveDateFrom, dateTo: effectiveDateTo });
+      if (cookie) params.set('cookie', cookie);
 
-        if (start === 1) {
-          const kwLabel = kw ? `키워드 "${kw}"` : '카페 전체';
-          const ver = data._version ? ` ${data._version}` : '';
-          const dbgLogin = data._debug?.loginResult;
-          const loginTag = dbgLogin === 'login-ok' ? ' ✓로그인' : dbgLogin === 'login-failed' ? ' ✗로그인실패' : '';
-          log(`  ${kwLabel} [${source}${ver}${loginTag}] — 기간 내 ${items.length}건`);
-          // 0건 + 서버 디버그 정보 → 차단/구조변경 진단 노출
-          const dbg = data._debug;
-          if (items.length === 0) {
-            if (!dbg) {
-              log(`  → 서버에서 _debug 필드를 보내지 않음 — Vercel 구버전 배포 가능성 (재배포 필요)`, 'warn');
-            } else if (dbg.firstError) {
-              log(`  → Naver 수집 실패 [${dbg.method||'?'}]: ${dbg.firstError}`, 'err');
-              if (dbg.firstSnippet) log(`     스니펫: ${dbg.firstSnippet}`, 'warn');
-            } else if (dbg.firstStatus === 200 && dbg.firstCardCount === 0) {
-              log(`  → 응답 OK(200) but 게시글 0개 — 구조 변경 또는 캡차 가능성`, 'warn');
-              if (dbg.firstSnippet) log(`     스니펫: ${dbg.firstSnippet}`, 'warn');
-            }
-          }
-        }
-
-        // 원본 응답 자체가 0이면 — Naver에 해당 키워드 결과 없음. 다음 키워드.
-        if (rawCount === 0) break;
-
-        let hitOldDate = false;
-        let skipNoDate = 0, skipUnreasonable = 0, skipRange = 0;
-
-        for (const item of items) {
-          if (seen.has(item.link)) continue;
-          seen.add(item.link);
-
-          // search.naver.com에서 검증된 정확한 날짜
-          const dateStr = DATE.parse(item._date) || DATE.parse(item.postdate);
-          if (!dateStr) { skipNoDate++; continue; }
-          if (!DATE.isReasonable(dateStr)) { skipUnreasonable++; continue; }
-
-          // 추가 안전장치 — 서버에서 이미 컷됐어야 함
-          if (dateStr < dateFrom) { hitOldDate = true; skipRange++; continue; }
-          if (dateStr > dateTo)   { skipRange++; continue; }
-
-          posts.push({
-            title:  cleanHtml(item.title||''),
-            url:    item.link||'',
-            date:   dateStr,
-            views:  '0',
-            source: `네이버카페(${cafeName})`,
-            game:   gameName,
-            body:   cleanHtml(item.description||''),
-            images: [],
+      let res = null, lastErr = '';
+      for (const apiPath of ['/cafe', '/api/naver']) {
+        try {
+          const ctrl = new AbortController();
+          const tid  = setTimeout(() => ctrl.abort(), 15000);
+          res = await fetch(`${apiPath}?${params}`, {
+            signal: ctrl.signal, cache: 'no-store', credentials: 'omit'
           });
+          clearTimeout(tid);
+          if (res && res.ok) break;
+          lastErr = `[${apiPath}] HTTP ${res?.status}`;
+        } catch(e) {
+          lastErr = `[${apiPath}] ${e.name||'Error'}:${e.message}`;
+          res = null;
         }
-
-        if (skipNoDate || skipUnreasonable || skipRange) {
-          log(`  → [검증] 날짜불명 ${skipNoDate}건 · 비정상 ${skipUnreasonable}건 · 범위외 ${skipRange}건 제외`, 'warn');
-        }
-
-        // 종료 조건: dateFrom 이전 발견 OR API 원본이 페이지 크기 미만
-        if (hitOldDate) break;
-        if (rawCount < NAVER_PAGE_SIZE) break;
-        start += NAVER_PAGE_SIZE;
-        await sleep(200);
-      } catch(e) {
-        // Safari에서 'Load failed'는 네트워크 차단/CORS/보호 리디렉트 등을 가리킨다
-        const hint = e.message === 'Load failed' || /load failed/i.test(e.message)
-          ? ' — 사파리 네트워크 차단 가능성. 브라우저 검사기 → 네트워크 탭에서 실제 응답 확인 권장. URL에 collector-nu.vercel.app 직접 접속해보세요.'
-          : '';
-        log(`  → 키워드 "${kw}" 오류 [${e.name||'Error'}]: ${e.message}${hint}`, 'err');
+      }
+      if (!res || !res.ok) {
+        const errText = res ? await res.text().catch(()=>'') : '';
+        log(`  → API 오류 ${lastErr} ${errText.slice(0,120)}`, 'err');
         break;
       }
+      const data = await res.json();
+      if (data.errorMessage || data.error) {
+        log(`  → 네이버 API 오류: ${data.errorMessage || data.error}`, 'err');
+        break;
+      }
+      const items    = data.items || [];
+      const rawCount = (typeof data._rawCount === 'number') ? data._rawCount : items.length;
+      const source   = data._source || 'naver';
+
+      if (start === 1) {
+        const ver = data._version ? ` ${data._version}` : '';
+        log(`  카페 전체 [${source}${ver}] — 기간 내 ${items.length}건`);
+        const dbg = data._debug;
+        if (items.length === 0 && dbg) {
+          if (dbg.firstError) {
+            log(`  → Naver 수집 실패 [${dbg.method||'?'}]: ${dbg.firstError}`, 'err');
+            if (dbg.firstSnippet) log(`     스니펫: ${dbg.firstSnippet}`, 'warn');
+          }
+        }
+      }
+
+      if (rawCount === 0) break;
+
+      let hitOldDate = false;
+      for (const item of items) {
+        if (seen.has(item.link)) continue;
+        seen.add(item.link);
+
+        const dateStr = DATE.parse(item._date) || DATE.parse(item.postdate);
+        if (!dateStr || !DATE.isReasonable(dateStr)) continue;
+        if (dateStr < dateFrom) { hitOldDate = true; continue; }
+        if (dateStr > dateTo)   continue;
+
+        posts.push({
+          title:  cleanHtml(item.title||''),
+          url:    item.link||'',
+          date:   dateStr,
+          views:  '0',
+          source: `네이버카페(${cafeName})`,
+          game:   gameName,
+          body:   cleanHtml(item.description||''),
+          images: [],
+        });
+      }
+
+      if (hitOldDate) break;
+      if (rawCount < NAVER_PAGE_SIZE) break;
+      start += NAVER_PAGE_SIZE;
+      await sleep(200);
+    } catch(e) {
+      const hint = e.message === 'Load failed' || /load failed/i.test(e.message)
+        ? ' — 사파리 네트워크 차단 가능성. Vercel 배포 URL에서 접속하세요.'
+        : '';
+      log(`  → 오류 [${e.name||'Error'}]: ${e.message}${hint}`, 'err');
+      break;
     }
-    await sleep(150);
   }
 
-  // ── 2차 날짜 검증 — 모든 항목 strict dateRange 재확인
-  const before = posts.length;
-  const verified = posts.filter(p => {
-    if (!p.date) return false;
-    if (!DATE.isReasonable(p.date)) return false;
-    if (p.date < dateFrom || p.date > dateTo) return false;
-    return true;
-  });
-  const dropped = before - verified.length;
-  if (dropped > 0) {
-    log(`  [2차 날짜 검증] ${before}건 → ${verified.length}건 (${dropped}건 기간 불일치 제외)`, 'warn');
-  } else if (before > 0) {
-    log(`  [2차 날짜 검증] 모든 ${before}건 기간 일치 ✓`);
+  // 날짜 재검증
+  const verified = posts.filter(p =>
+    p.date && DATE.isReasonable(p.date) && p.date >= dateFrom && p.date <= dateTo
+  );
+  if (verified.length < posts.length) {
+    log(`  [날짜 검증] ${posts.length}건 → ${verified.length}건`, 'warn');
   }
 
   const statusEl = document.getElementById('naverStatus_' + statusKey);
@@ -1238,7 +936,7 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
     statusEl.querySelector('.cafe-name').innerHTML = `✅ ${cafeName}`;
     countEl.textContent = verified.length;
   }
-  log(`네이버카페 [${cafeName}] 완료: ${verified.length}건 (검증)`);
+  log(`네이버카페 [${cafeName}] 완료: ${verified.length}건`);
   return verified;
 }
 
@@ -1254,27 +952,26 @@ function buildExcel(allResults) {
     (byGame[g]||byGame['기타']).push(r);
   }
 
-  // ── 전체 요약 시트 ──
+  // 전체 요약 시트
   const sumData = [
     ['야구 게임 커뮤니티 수집 리포트'],
     [`수집 일시: ${new Date().toLocaleString('ko-KR')}`],
     [''],
-    ['게임','수집건수','버그/이슈','문의/질문','의견/평가','수집 사이트'],
+    ['게임','수집건수','수집 사이트'],
   ];
   for (const g of games) {
     const items = byGame[g];
     if (!items.length) continue;
-    const cnt = cat => items.filter(r=>r.category===cat).length;
     const srcs = [...new Set(items.map(r=>r.source||''))].join(', ');
-    sumData.push([g, items.length, cnt('버그/이슈'), cnt('문의/질문'), cnt('의견/평가'), srcs]);
+    sumData.push([g, items.length, srcs]);
   }
   const wsSum = XLSX.utils.aoa_to_sheet(sumData);
-  wsSum['!cols'] = [{wch:16},{wch:10},{wch:10},{wch:10},{wch:10},{wch:50}];
+  wsSum['!cols'] = [{wch:16},{wch:10},{wch:60}];
   XLSX.utils.book_append_sheet(wb, wsSum, '전체요약');
 
-  // ── 게임별 시트 ──
-  const COLS = ['No','이슈 제목','이슈 내용','발생 단말','발생 빈도','심각도','카테고리','출처 사이트','날짜','원문 링크'];
-  const WIDS = [5, 30, 52, 18, 18, 8, 10, 22, 12, 40];
+  // 게임별 시트
+  const COLS = ['No','제목','본문 요약','출처 사이트','날짜','원문 링크'];
+  const WIDS = [5, 50, 60, 22, 12, 50];
   for (const g of games) {
     const items = byGame[g];
     if (!items.length) continue;
@@ -1282,10 +979,6 @@ function buildExcel(allResults) {
       i+1,
       r.title||'',
       r.body||'',
-      r.device||'Android/iOS (미확인)',
-      r.frequency||'미상',
-      r.severity||'중',
-      r.category||'',
       r.source||'',
       r.date||'',
       r.url||'',
@@ -1313,85 +1006,12 @@ let isRunning = false;
   document.getElementById('dateTo').value   = fmt(d);
 })();
 
-// Category toggle
-document.querySelectorAll('.cat-btn').forEach(btn => {
-  btn.addEventListener('click', () => btn.classList.toggle('on'));
-});
-
-// ── 학습된 키워드 패널 렌더링 ─────────────────────────────────
-function renderLearnedPanel() {
-  const body = document.getElementById('learnedPanelBody');
-  if (!body) return;
-  if (LEARNED.BUG.length === 0 && LEARNED.INQUIRY.length === 0) {
-    body.innerHTML = '<div style="color:#6e7681">학습된 키워드 없음. 결과 행의 📌 버튼으로 추가하세요.</div>';
-    return;
-  }
-  const chip = (cat, kw) => `<span class="learned-chip" data-cat="${cat}" data-kw="${escHtml(kw)}">${escHtml(kw)} <span class="x">×</span></span>`;
-  let html = '';
-  if (LEARNED.BUG.length) {
-    html += `<div style="margin-bottom:6px"><strong style="color:#f85149">🐛 버그</strong> (${LEARNED.BUG.length}): `;
-    html += LEARNED.BUG.map(k => chip('BUG', k)).join('');
-    html += '</div>';
-  }
-  if (LEARNED.INQUIRY.length) {
-    html += `<div><strong style="color:#56d364">❓ 문의</strong> (${LEARNED.INQUIRY.length}): `;
-    html += LEARNED.INQUIRY.map(k => chip('INQUIRY', k)).join('');
-    html += '</div>';
-  }
-  body.innerHTML = html;
-}
-renderLearnedPanel();
-
-// 학습 칩 삭제 (× 클릭)
-document.addEventListener('click', (e) => {
-  const x = e.target.closest('.learned-chip .x');
-  if (!x) return;
-  const chip = x.parentElement;
-  if (removeLearnedKw(chip.dataset.cat, chip.dataset.kw)) renderLearnedPanel();
-});
-
-// 전체 삭제 버튼
-document.getElementById('clearLearnedBtn')?.addEventListener('click', () => {
-  if (!LEARNED.BUG.length && !LEARNED.INQUIRY.length) return;
-  if (!confirm(`학습된 키워드 ${LEARNED.BUG.length + LEARNED.INQUIRY.length}개를 모두 삭제할까요?`)) return;
-  LEARNED.BUG.length = 0;
-  LEARNED.INQUIRY.length = 0;
-  saveLearned();
-  renderLearnedPanel();
-});
-
-// 📌 학습 버튼 클릭 (결과 행)
-document.addEventListener('click', (e) => {
-  const btn = e.target.closest('.learn-btn');
-  if (!btn) return;
-  const idx = parseInt(btn.dataset.idx, 10);
-  const post = collectedResults[idx];
-  if (!post) return;
-
-  const catChoice = prompt(
-    `학습할 카테고리를 선택하세요\n  1 → 🐛 버그/이슈\n  2 → ❓ 문의/질문\n\n` +
-    `[제목]\n${post.title}\n\n[본문]\n${(post.body||'').slice(0, 200)}`
-  );
-  if (catChoice !== '1' && catChoice !== '2') return;
-
-  const phrase = prompt('학습할 키워드/구문을 입력하세요 (2자 이상):\n예) "결제했는데", "팅겨요", "수정 예정"');
-  if (!phrase) return;
-
-  const catKey = catChoice === '1' ? 'BUG' : 'INQUIRY';
-  if (addLearnedKw(catKey, phrase)) {
-    renderLearnedPanel();
-    alert(`📌 학습 완료 → ${catKey === 'BUG' ? '🐛 버그' : '❓ 문의'}: "${phrase.trim()}"\n\n다음 수집부터 분류·2차 필터에 반영됩니다.`);
-  } else {
-    alert('이미 등록된 키워드이거나 길이가 너무 짧습니다.');
-  }
-});
-
-// Site item checked state + show/hide Naver card + per-cafe config
+// Site item checked state + show/hide Naver card
 function syncNaverCard() {
   const cpb26   = !!document.querySelector('.site-item input[value=naver_cpb26]:checked');
   const innings = !!document.querySelector('.site-item input[value=naver_9innings]:checked');
   const anyNaver = cpb26 || innings;
-  document.getElementById('naverCard').style.display         = anyNaver ? 'block' : 'none';
+  document.getElementById('naverCard').style.display           = anyNaver ? 'block' : 'none';
   document.getElementById('naverConfig_cpb26').style.display   = cpb26   ? 'block' : 'none';
   document.getElementById('naverConfig_9innings').style.display = innings ? 'block' : 'none';
 }
@@ -1426,15 +1046,12 @@ function setProgress(pct, status) {
 document.getElementById('btnStart').addEventListener('click', async () => {
   if (isRunning) return;
   let sites = [...document.querySelectorAll('.site-item input:checked')].map(e=>e.value);
-  const cats  = new Set([...document.querySelectorAll('.cat-btn.on')].map(e=>e.dataset.cat));
   if (!sites.length) { alert('수집 사이트를 선택하세요.'); return; }
-  if (!cats.size)    { alert('카테고리를 선택하세요.'); return; }
 
   const dateFrom = document.getElementById('dateFrom').value;
   const dateTo   = document.getElementById('dateTo').value;
   if (!dateFrom || !dateTo) { alert('기간을 입력하세요.'); return; }
 
-  // 사용자 검색어
   const userKeywords = parseUserKeywords();
 
   isRunning = true;
@@ -1449,7 +1066,6 @@ document.getElementById('btnStart').addEventListener('click', async () => {
   document.getElementById('logBox').innerHTML = '';
   setProgress(0, '수집 준비 중...');
 
-  // 네이버 상태 초기화
   ['cpb26','9innings'].forEach(k => {
     const s = document.getElementById('naverStatus_' + k);
     const c = document.getElementById('naverCount_' + k);
@@ -1463,7 +1079,7 @@ document.getElementById('btnStart').addEventListener('click', async () => {
   let doneSites = 0;
 
   try {
-    // DC인사이드 — 전체글 수집 (기간 필터만)
+    // DC인사이드
     for (const key of ['dc_cpyv','dc_rivals','dc_9innings','dc_cpb26']) {
       if (!sites.includes(key)) continue;
       const { game } = DC_BOARDS[key];
@@ -1474,7 +1090,7 @@ document.getElementById('btnStart').addEventListener('click', async () => {
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
     }
 
-    // 컴프야V 공식 — 전체글 수집
+    // 컴프야V 공식
     if (sites.includes('cpbv_official')) {
       log('=== 컴프야V 공식 커뮤니티 수집 시작 ===', 'info');
       const p = await scrapeCpbvOfficial(dateFrom, dateTo, log);
@@ -1483,7 +1099,7 @@ document.getElementById('btnStart').addEventListener('click', async () => {
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
     }
 
-    // MLB라이벌 공식 — 전체글 수집
+    // MLB라이벌 공식
     if (sites.includes('rivals_official')) {
       log('=== MLB라이벌 공식 커뮤니티 수집 시작 ===', 'info');
       const p = await scrapeRivalsOfficial(dateFrom, dateTo, log);
@@ -1492,14 +1108,13 @@ document.getElementById('btnStart').addEventListener('click', async () => {
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
     }
 
-    // 네이버 수집 옵션 (카드에서 읽기)
+    // 네이버카페 ping
     const naverCookie   = document.getElementById('naverCookie')?.value.trim() || '';
     const naverPageMode = document.querySelector('input[name=naverMode]:checked')?.value === 'pages';
     const naverPageCnt  = parseInt(document.getElementById('naverPageCount')?.value) || 2;
 
     const hasNaver = sites.includes('naver_cpb26') || sites.includes('naver_9innings');
     if (hasNaver) {
-      // API 접근 가능 여부 ping 체크
       log('네이버카페 API 연결 확인 중...', 'info');
       let apiOk = false;
       for (const apiPath of ['/cafe', '/api/naver']) {
@@ -1512,25 +1127,23 @@ document.getElementById('btnStart').addEventListener('click', async () => {
         } catch {}
       }
       if (!apiOk) {
-        log('❌ 네이버 API 연결 실패 — 이 도구는 Vercel에 배포된 상태에서만 네이버카페 수집이 가능합니다.', 'err');
-        log('   배포 방법: GitHub에 올린 뒤 vercel.com에서 연결 → 배포. 로컬 HTML 파일로 실행 시에는 지원되지 않습니다.', 'warn');
-        // 네이버 사이트는 건너뜀
+        log('❌ 네이버 API 연결 실패 — Vercel에 배포된 상태에서만 네이버카페 수집 가능합니다.', 'err');
         sites = sites.filter(s => !s.startsWith('naver_'));
       } else {
         if (naverCookie) {
           log('🍪 세션 쿠키 확인됨 — 회원 전용 글도 수집합니다.', 'info');
         } else {
-          log('ℹ️  쿠키 없음 — 공개 게시글만 수집됩니다 (공개 카페는 정상 수집).', 'info');
+          log('ℹ️  쿠키 없음 — 공개 게시글 수집합니다.', 'info');
         }
       }
     }
 
     // 네이버카페 — 컴프야26
     if (sites.includes('naver_cpb26')) {
-      const cId  = document.getElementById('cafeId_cpb26')?.value.trim() || '27851354';
-      const mId  = parseInt(document.getElementById('menuId_cpb26')?.value) || 0;
+      const cId = document.getElementById('cafeId_cpb26')?.value.trim() || '27851354';
+      const mId = parseInt(document.getElementById('menuId_cpb26')?.value) || 0;
       log('=== 네이버카페 컴프야26 수집 시작 ===', 'info');
-      const p = await scrapeNaverCafeAPI('컴프야26', cId, '컴프야26', dateFrom, dateTo, log, 'cpb26', userKeywords,
+      const p = await scrapeNaverCafeAPI('컴프야26', cId, '컴프야26', dateFrom, dateTo, log, 'cpb26',
         { cookie: naverCookie, menuId: mId, pageMode: naverPageMode, pageCount: naverPageCnt });
       allPosts.push(...p);
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
@@ -1538,53 +1151,38 @@ document.getElementById('btnStart').addEventListener('click', async () => {
 
     // 네이버카페 — MLB9이닝스
     if (sites.includes('naver_9innings')) {
-      const cId  = document.getElementById('cafeId_9innings')?.value.trim() || '28683505';
-      const mId  = parseInt(document.getElementById('menuId_9innings')?.value) || 0;
+      const cId = document.getElementById('cafeId_9innings')?.value.trim() || '28683505';
+      const mId = parseInt(document.getElementById('menuId_9innings')?.value) || 0;
       log('=== 네이버카페 MLB9이닝스 수집 시작 ===', 'info');
-      const p = await scrapeNaverCafeAPI('MLB9이닝스', cId, 'MLB9이닝스', dateFrom, dateTo, log, '9innings', userKeywords,
+      const p = await scrapeNaverCafeAPI('MLB9이닝스', cId, 'MLB9이닝스', dateFrom, dateTo, log, '9innings',
         { cookie: naverCookie, menuId: mId, pageMode: naverPageMode, pageCount: naverPageCnt });
       allPosts.push(...p);
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
     }
 
-    // ── 카테고리 분류 — 모든 소스 strict=false (전체글 수집 후 자동 분류) ──
-    log(`=== 분류 중 (총 ${allPosts.length}건) ===`, 'info');
-    setProgress(90, '분류 중...');
-    const classified = [];
-    let droppedFilter = 0;
+    // ── 게임 분류 (Excel 시트 구성용) ─────────────────────────
     for (const p of allPosts) {
-      const cat = classifyCategory(p.title, p.body, cats, false);
-      if (cat === null) { droppedFilter++; continue; }
-      p.category        = cat;
-      p.game_classified = p.game || classifyGame(p.title, p.body, p.hint||p.source||'');
-      p.severity        = classifySeverity(p.title, p.body);
-      p.device          = 'Android/iOS (미확인)';
-      p.frequency       = '미상';
-      classified.push(p);
+      p.game_classified = p.game || classifyGame(p.title, p.body, p.source||'');
     }
-    if (droppedFilter) log(`  → 카테고리 체크박스 미선택으로 ${droppedFilter}건 제외`);
 
-    // ── 키워드 필터 (입력 시 제목 or 본문에 키워드 포함된 글만 표시) ──
-    const hasUserKw = userKeywords.length > 0;
-    const filtered = hasUserKw
-      ? classified.filter(p => userKeywords.some(k =>
+    // ── 검색어 필터 (입력 시만 적용, 미입력 시 전체 수집) ─────
+    setProgress(90, '필터링 중...');
+    let finalResults;
+    if (userKeywords.length > 0) {
+      finalResults = allPosts.filter(p =>
+        userKeywords.some(k =>
           fuzzyIncludes(p.title.toLowerCase(), k) ||
           fuzzyIncludes((p.body || '').toLowerCase(), k)
-        ))
-      : classified;
-    if (hasUserKw) log(`  → 키워드 필터(제목·본문): ${filtered.length}건 (전체 ${classified.length}건 중)`);
-
-    // ── 2차 필터링 (정밀 매칭) ─────────────────────────────────
-    let finalResults = filtered;
-    const enableSec = document.getElementById('enableSecondaryFilter')?.checked ?? true;
-    if (enableSec) {
-      finalResults = filtered.filter(secondaryFilter);
-      const learnedSize = LEARNED.BUG.length + LEARNED.INQUIRY.length;
-      log(`  → 2차 필터(버그·문의 정밀${learnedSize?` + 학습 ${learnedSize}개`:''}): ${finalResults.length}건 (1차 ${filtered.length}건 중)`, 'info');
+        )
+      );
+      log(`검색어 필터(${userKeywords.join(', ')}): ${finalResults.length}건 / 전체 ${allPosts.length}건`, 'info');
+    } else {
+      finalResults = allPosts;
+      log(`검색어 없음 — 전체 ${finalResults.length}건 표시`, 'info');
     }
 
-    log(`분류 완료: ${finalResults.length}건`);
-    setProgress(100, `✅ 완료 — ${finalResults.length}건 수집`);
+    log(`수집 완료: ${finalResults.length}건`);
+    setProgress(100, `✅ 완료 — ${finalResults.length}건`);
 
     collectedResults = finalResults;
     showResults(finalResults);
@@ -1605,43 +1203,35 @@ function showResults(results) {
   document.getElementById('resultsSection').style.display = 'block';
 
   const byGame = {};
-  const byCat  = { '버그/이슈': 0, '문의/질문': 0, '의견/평가': 0 };
   for (const r of results) {
     const g = r.game_classified||'기타';
     byGame[g] = (byGame[g]||0)+1;
-    if (r.category in byCat) byCat[r.category]++;
   }
 
   let statsHtml = `<div class="stat-box"><div class="num">${results.length}</div><div class="lbl">전체</div></div>`;
   for (const [g,n] of Object.entries(byGame)) {
     statsHtml += `<div class="stat-box"><div class="num">${n}</div><div class="lbl">${g}</div></div>`;
   }
-  statsHtml += `<div class="stat-box"><div class="num" style="color:#f85149">${byCat['버그/이슈']}</div><div class="lbl">버그/이슈</div></div>`;
-  statsHtml += `<div class="stat-box"><div class="num" style="color:#56d364">${byCat['문의/질문']}</div><div class="lbl">문의/질문</div></div>`;
-  statsHtml += `<div class="stat-box"><div class="num" style="color:#79c0ff">${byCat['의견/평가']}</div><div class="lbl">의견/평가</div></div>`;
   document.getElementById('statsRow').innerHTML = statsHtml;
   document.getElementById('progCount').textContent = `${results.length}건`;
 
   const tbody = document.getElementById('resultBody');
-  const MAX_ROWS = 300;
+  const MAX_ROWS = 500;
   tbody.innerHTML = results.slice(0,MAX_ROWS).map((r,i) => {
-    const catKey  = r.category === '버그/이슈' ? 'bug-issue' : r.category === '문의/질문' ? 'inquiry' : 'opinion-review';
-    const game    = r.game_classified||'기타';
-    const sev     = r.severity||'중';
+    const game = r.game_classified||'기타';
     return `<tr>
       <td style="text-align:center;color:#484f58;width:36px">${i+1}</td>
       <td><span class="game-chip game-${game}">${game}</span></td>
       <td><a href="` + escHtml(r.url||'') + `" target="_blank" rel="noopener">` + escHtml(r.title||'') + `</a></td>
-      <td><span class="tag tag-${catKey}">` + escHtml(r.category||'') + `</span></td>
-      <td><span class="sev sev-${sev}">${sev}</span></td>
       <td style="font-size:11px;color:#6e7681;white-space:nowrap">` + escHtml(r.source||'') + `</td>
       <td style="font-size:11px;color:#6e7681;white-space:nowrap">` + escHtml(r.date||'') + `</td>
-      <td style="text-align:center"><button class="learn-btn" data-idx="${i}" title="이 게시글의 핵심 표현을 학습">📌</button></td>
     </tr>`;
   }).join('');
 
   if (results.length > MAX_ROWS) {
     document.getElementById('dlNote').textContent = `미리보기 ${MAX_ROWS}건 — 전체 ${results.length}건은 엑셀 파일에 포함`;
+  } else {
+    document.getElementById('dlNote').textContent = '';
   }
 
   document.getElementById('btnDl').disabled = !results.length;
