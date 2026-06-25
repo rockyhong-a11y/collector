@@ -101,31 +101,27 @@ export default async function handler(req, res) {
   const url = `https://www.fmkorea.com/index.php?mid=baseball_game&category=${category}&page=${pageNum}`;
   const today = todayKST();
 
+  // ── 1순위: 직접 fetch (UA별, 각 3s 타임아웃) ──────────────────
   let lastError = '';
   for (const ua of UA_LIST) {
     let html = '';
     try {
       const ctrl = new AbortController();
-      const tid  = setTimeout(() => ctrl.abort(), 10000);
+      const tid  = setTimeout(() => ctrl.abort(), 3000);
       const r = await fetch(url, {
         headers: {
           'User-Agent': ua,
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Connection': 'keep-alive',
-          'Upgrade-Insecure-Requests': '1',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'ko-KR,ko;q=0.9',
           'Referer': 'https://www.fmkorea.com/',
-          'Sec-Fetch-Site': 'same-origin',
-          'Sec-Fetch-Mode': 'navigate',
-          'Sec-Fetch-Dest': 'document',
+          'Upgrade-Insecure-Requests': '1',
         },
         signal: ctrl.signal,
       });
       clearTimeout(tid);
       html = await r.text();
     } catch (e) {
-      lastError = e.message;
+      lastError = `직접fetch(${ua.slice(11,17)}): ${e.message}`;
       continue;
     }
 
@@ -135,19 +131,41 @@ export default async function handler(req, res) {
     }
 
     const { items, hitOld } = parseArticles(html, today, dateFrom, dateTo);
-    return res.status(200).json({
-      items,
-      page: pageNum,
-      hitOld,
-      _htmlLen: html.length,
-      _ua: ua.slice(0, 40),
-    });
+    return res.status(200).json({ items, page: pageNum, hitOld, _htmlLen: html.length, _via: 'direct' });
+  }
+
+  // ── 2순위: allorigins.win 경유 ──────────────────────────────
+  const proxies = [
+    `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+  ];
+  for (const px of proxies) {
+    let html = '';
+    try {
+      const ctrl = new AbortController();
+      const tid  = setTimeout(() => ctrl.abort(), 4000);
+      const r    = await fetch(px, { signal: ctrl.signal });
+      clearTimeout(tid);
+      const text = await r.text();
+      try { const j = JSON.parse(text); html = j.contents || ''; } catch { html = text; }
+    } catch (e) {
+      lastError = `proxy(${px.slice(8, 28)}): ${e.message}`;
+      continue;
+    }
+
+    if (html.length < 2000 || !html.includes('fmkorea')) {
+      lastError = `proxy HTML 짧음 (${html.length}자)`;
+      continue;
+    }
+
+    const { items, hitOld } = parseArticles(html, today, dateFrom, dateTo);
+    return res.status(200).json({ items, page: pageNum, hitOld, _htmlLen: html.length, _via: 'proxy' });
   }
 
   return res.status(200).json({
     items: [],
     page: pageNum,
     hitOld: false,
-    _error: lastError || '모든 UA 실패',
+    _error: lastError || '직접접근/프록시 모두 실패',
   });
 }
