@@ -255,11 +255,11 @@ tbody tr:hover td{background:#1c2128}
   <div class="card" id="naverCard" style="display:none">
     <div class="card-title">🔗 네이버카페 수집 설정</div>
 
-    <!-- 세션 쿠키 입력 -->
+    <!-- 세션 쿠키 입력 (선택) -->
     <div class="field" style="margin-bottom:8px">
-      <label class="field-label">🍪 네이버 세션 쿠키 <span class="opt-badge">필수</span></label>
-      <input type="password" id="naverCookie" placeholder="NID_AUT=xxxx;NID_SES=yyyy" autocomplete="off">
-      <span class="field-hint">크롬 → cafe.naver.com 로그인 → F12 → Application → Cookies → NID_AUT 값과 NID_SES 값을 <strong>NID_AUT=값;NID_SES=값</strong> 형태로 붙여넣기</span>
+      <label class="field-label">🍪 네이버 세션 쿠키 <span class="opt-badge" style="background:#2a5200;color:#7fff67">선택</span></label>
+      <input type="password" id="naverCookie" placeholder="(선택) NID_AUT=xxxx;NID_SES=yyyy — 비워도 공개 게시글 수집 가능" autocomplete="off">
+      <span class="field-hint">공개 카페는 쿠키 없이도 수집됩니다. 비공개/회원 전용 글이 필요한 경우에만 입력: 크롬 → cafe.naver.com 로그인 → F12 → Application → Cookies → NID_AUT, NID_SES 값을 <strong>NID_AUT=값;NID_SES=값</strong> 형태로 붙여넣기</span>
     </div>
 
     <!-- 컴프야26 설정 -->
@@ -1514,14 +1514,13 @@ document.getElementById('btnStart').addEventListener('click', async () => {
       if (!apiOk) {
         log('❌ 네이버 API 연결 실패 — 이 도구는 Vercel에 배포된 상태에서만 네이버카페 수집이 가능합니다.', 'err');
         log('   배포 방법: GitHub에 올린 뒤 vercel.com에서 연결 → 배포. 로컬 HTML 파일로 실행 시에는 지원되지 않습니다.', 'warn');
-        if (!naverCookie) {
-          log('   또한 세션 쿠키가 비어 있습니다. 크롬 → cafe.naver.com 로그인 → F12 → Application → Cookies에서 NID_AUT, NID_SES 값을 입력하세요.', 'warn');
-        }
         // 네이버 사이트는 건너뜀
         sites = sites.filter(s => !s.startsWith('naver_'));
       } else {
-        if (!naverCookie) {
-          log('⚠️  세션 쿠키 없이 수집 시도 — 비공개 글은 수집되지 않을 수 있습니다.', 'warn');
+        if (naverCookie) {
+          log('🍪 세션 쿠키 확인됨 — 회원 전용 글도 수집합니다.', 'info');
+        } else {
+          log('ℹ️  쿠키 없음 — 공개 게시글만 수집됩니다 (공개 카페는 정상 수집).', 'info');
         }
       }
     }
