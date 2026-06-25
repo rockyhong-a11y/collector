@@ -22,7 +22,7 @@ const CAFE_SLUGS = {
 };
 
 const BOARDLIST_API = 'https://apis.naver.com/cafe-web/cafe-boardlist-api';
-const NAVER_PAGE_SIZE = 20;
+const NAVER_PAGE_SIZE = 50;
 
 function todayKST() {
   const now = new Date();
@@ -203,7 +203,8 @@ export default async function handler(req, res) {
   const startIdx  = Math.max(1, parseInt(start) || 1);
 
   const batch          = Math.floor((startIdx - 1) / maxItems);
-  const pagesPerBatch  = Math.ceil(maxItems / NAVER_PAGE_SIZE);
+  // 페이지당 실제 반환 건수가 NAVER_PAGE_SIZE보다 적을 수 있으므로 여유 있게 설정
+  const pagesPerBatch  = Math.ceil(maxItems / 10);
   const startNaverPage = batch * pagesPerBatch + 1;
 
   const debug = {
@@ -267,7 +268,7 @@ export default async function handler(req, res) {
     }
 
     const hasMore = pageInfo?.visibleNextButton !== false;
-    if (hitOld || allItems.length >= maxItems || !hasMore || list.length < NAVER_PAGE_SIZE) break;
+    if (hitOld || allItems.length >= maxItems || !hasMore) break;
   }
 
   if (allItems.length > 0 || debug.method === 'boardlist-api') {
