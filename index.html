@@ -833,58 +833,44 @@ const FM_BOARDS = {
 
 async function scrapeFmkorea(siteKey, dateFrom, dateTo, log) {
   const { game, category } = FM_BOARDS[siteKey];
-  const BASE = `https://www.fmkorea.com/index.php?mid=baseball_game&category=${category}`;
   const posts = [];
   const seenUrls = new Set();
 
   log(`에펨코리아 ${game} 수집 시작`, 'info');
 
   for (let page = 1; page <= 15; page++) {
-    const url = `${BASE}&page=${page}`;
     log(`  에펨코리아 ${game} 페이지 ${page}`, 'info');
-    const html = await proxyGet(url, 12000);
-    if (!html || html.length < 1000) { log(`    → 응답 없음/차단`, 'warn'); break; }
+    let data = null;
+    for (const apiPath of ['/fmkorea', '/api/fmkorea']) {
+      try {
+        const ctrl = new AbortController();
+        const tid  = setTimeout(() => ctrl.abort(), 15000);
+        const params = new URLSearchParams({ category, page, dateFrom, dateTo });
+        const r = await fetch(`${apiPath}?${params}`, { signal: ctrl.signal, cache: 'no-store', credentials: 'omit' });
+        clearTimeout(tid);
+        if (r.ok) { data = await r.json(); break; }
+      } catch(e) {
+        log(`    [${apiPath}] ${e.message}`, 'warn');
+      }
+    }
 
-    // tbody 안 tr 행 추출
-    const tbodyM = html.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i);
-    if (!tbodyM) { log(`    → tbody 없음`, 'warn'); break; }
-    const tbody = tbodyM[1];
+    if (!data) { log(`    → API 응답 없음`, 'err'); break; }
+    if (data._error) { log(`    → ${data._error}`, 'err'); break; }
 
-    const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-    let rowMatch;
-    let oldestDate = '9999', pageCount = 0;
+    const items = data.items || [];
+    log(`    → ${items.length}건 (htmlLen=${data._htmlLen||'?'})`);
 
-    while ((rowMatch = rowRe.exec(tbody)) !== null) {
-      const row = rowMatch[1];
-
-      // 공지 행 스킵
-      if (/class="[^"]*notice/.test(rowMatch[0])) continue;
-
-      // 제목 링크 (댓글 앵커 #xxx 제외)
-      const linkM = row.match(/href="(\/index\.php\?[^"#]*document_srl=(\d+)[^"#]*)"/);
-      if (!linkM) continue;
-      const href = linkM[1];
-      const postUrl = 'https://www.fmkorea.com' + href;
-      if (seenUrls.has(postUrl)) continue;
-      seenUrls.add(postUrl);
-
-      // 제목 텍스트: .title a 첫 번째 텍스트 노드
-      const titleM = row.match(/<td[^>]*class="[^"]*title[^"]*"[^>]*>[\s\S]*?<a[^>]*href="[^"]*document_srl=\d+[^"]*"[^>]*>([\s\S]*?)<\/a>/i);
-      const title = titleM ? esc(stripTags(titleM[1])).trim() : '';
-      if (!title || title.length < 2) continue;
-
-      // 날짜: td.time
-      const dateM = row.match(/<td[^>]*class="[^"]*time[^"]*"[^>]*>([^<]+)<\/td>/i);
-      const dateStr = dateM ? DATE.parse(dateM[1].trim()) : null;
-      if (!dateStr || !DATE.isReasonable(dateStr)) continue;
-
-      if (dateStr < oldestDate) oldestDate = dateStr;
-      if (!DATE.inRange(dateStr, dateFrom, dateTo)) continue;
-
+    let pageCount = 0;
+    let oldestDate = '9999';
+    for (const item of items) {
+      if (seenUrls.has(item.url)) continue;
+      seenUrls.add(item.url);
+      if (!item.date || !DATE.isReasonable(item.date)) continue;
+      if (item.date < oldestDate) oldestDate = item.date;
       posts.push({
-        title,
-        url: postUrl,
-        date: dateStr,
+        title: item.title,
+        url:   item.url,
+        date:  item.date,
         views: '0',
         source: `에펨코리아(${game})`,
         game,
@@ -894,10 +880,9 @@ async function scrapeFmkorea(siteKey, dateFrom, dateTo, log) {
       pageCount++;
     }
 
-    log(`    → ${pageCount}건, 최소날짜=${oldestDate}`);
-    if (oldestDate !== '9999' && oldestDate < dateFrom) break;
-    if (pageCount === 0 && page > 1) break;
-    await sleep(1200);
+    if (data.hitOld || (oldestDate !== '9999' && oldestDate < dateFrom)) break;
+    if (items.length === 0) break;
+    await sleep(800);
   }
 
   return posts;

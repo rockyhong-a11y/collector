@@ -4,6 +4,7 @@
     { "source": "/api/proxy",   "destination": "/api/proxy" },
     { "source": "/api/article", "destination": "/api/article" },
     { "source": "/cafe",        "destination": "/api/naver" },
-    { "source": "/relay",       "destination": "/api/proxy" }
+    { "source": "/relay",       "destination": "/api/proxy" },
+    { "source": "/fmkorea",     "destination": "/api/fmkorea" }
   ]
 }

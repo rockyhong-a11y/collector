@@ -26,6 +26,7 @@ const MIME = {
 const REWRITES = {
   '/cafe':        '/api/naver',
   '/relay':       '/api/proxy',
+  '/fmkorea':     '/api/fmkorea',
 };
 
 async function loadHandler(apiPath) {
