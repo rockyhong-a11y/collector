@@ -1,8 +1,9 @@
-// Naver Cafe 수집 v8 — f-e Next.js SSR 파싱
+// Naver Cafe 수집 v9 — ca-fe REST API + f-e SSR 파싱 fallback
 //
 // 수집 흐름:
-//   1순위: f-e URL __NEXT_DATA__ JSON 파싱
-//   2순위: f-e URL HTML article 링크 파싱
+//   1순위: ca-fe REST API (세션 쿠키 있을 때 JSON 반환)
+//   2순위: f-e URL __NEXT_DATA__ JSON 파싱
+//   3순위: f-e URL HTML article 링크 파싱
 //
 // 파라미터:
 //   cafeId   — 카페 숫자 ID
@@ -10,6 +11,7 @@
 //   display  — 한 번에 반환할 최대 건수 (기본 100)
 //   start    — 시작 인덱스 (1, 101, 201 … 클라이언트 페이지네이션)
 //   dateFrom, dateTo — YYYY-MM-DD (빈 값이면 날짜 필터 없음)
+//   cookie   — 네이버 세션 쿠키 (NID_AUT=...;NID_SES=...)
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
@@ -20,7 +22,6 @@ const CAFE_SLUGS = {
   '28683505': 'mlb9innings',
 };
 
-// Naver f-e 페이지당 기본 20건 → display=100 이면 5페이지 fetch
 const NAVER_FE_PAGE_SIZE = 20;
 
 function todayKST() {
@@ -29,7 +30,6 @@ function todayKST() {
   return kst.toISOString().slice(0, 10);
 }
 
-// HH:MM → today / YY.MM.DD → 20YY-MM-DD / YYYY.MM.DD → YYYY-MM-DD / 타임스탬프
 function parseDateText(text, today) {
   if (!text) return null;
   text = String(text).trim();
@@ -63,14 +63,12 @@ function stripHtml(html) {
     .trim();
 }
 
-// Next.js SSR __NEXT_DATA__ 추출
 function extractNextData(html) {
   const m = html.match(/<script[^>]*id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
   if (!m) return null;
   try { return JSON.parse(m[1]); } catch { return null; }
 }
 
-// __NEXT_DATA__ 내 게시글 배열 재귀 탐색
 function findArticleList(obj, depth = 0) {
   if (depth > 10 || !obj || typeof obj !== 'object') return null;
   if (Array.isArray(obj)) {
@@ -97,6 +95,37 @@ function findArticleList(obj, depth = 0) {
   return null;
 }
 
+// ── 1순위: ca-fe REST API (세션 쿠키 제공 시) ──────────────────
+async function fetchCafeApiPage(cafeId, menuId, page, sessionCookie) {
+  const perPage = 20;
+  const sort = 'CREATED';
+  const mid = parseInt(menuId) || 0;
+  const url = `https://cafe.naver.com/ca-fe/cafes/${cafeId}/menus/${mid}/articles` +
+    `?page=${page}&perPage=${perPage}&sort=${sort}&viewType=list&withPinned=true&memberOnly=false`;
+  const headers = {
+    'User-Agent': UA,
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'ko-KR,ko;q=0.9',
+    'Referer': 'https://cafe.naver.com/',
+    'X-Cafe-Product': 'pc',
+  };
+  if (sessionCookie) headers['Cookie'] = sessionCookie;
+  const res = await fetch(url, { headers });
+  const text = await res.text();
+  if (!res.ok) return null;
+  try {
+    const json = JSON.parse(text);
+    // 응답 구조: { message: { result: { articleList: [...] } } } 또는 { articleList: [...] }
+    const list =
+      json?.message?.result?.articleList ||
+      json?.result?.articleList ||
+      json?.articleList ||
+      null;
+    return list;
+  } catch { return null; }
+}
+
+// ── 2순위: f-e SSR 페이지 파싱 ────────────────────────────────
 async function fetchNaverPage(cafeId, menuId, page, sessionCookie) {
   const mid = parseInt(menuId) || 0;
   const url = `https://cafe.naver.com/f-e/cafes/${cafeId}/menus/${mid}?page=${page}`;
@@ -113,7 +142,6 @@ async function fetchNaverPage(cafeId, menuId, page, sessionCookie) {
   return { ok: res.ok, status: res.status, html, url };
 }
 
-// 한 Naver 페이지 HTML에서 게시글 추출
 function parseArticlesFromPage(html, slug, today) {
   const items = [];
 
@@ -155,11 +183,9 @@ function parseArticlesFromPage(html, slug, today) {
     const after  = html.slice(idx, idx + 600);
     const ctx    = before + after;
 
-    // 날짜 추출: HH:MM / YY.MM.DD / YYYY.MM.DD
     const dateM = ctx.match(/(\d{1,2}:\d{2}|20\d{2}\.\d{2}\.\d{2}|\d{2}\.\d{2}\.\d{2})/);
     const date = dateM ? parseDateText(dateM[1], today) : null;
 
-    // 제목 추출: article/tit/title 클래스명 근처 텍스트
     const titleM = ctx.match(/class="[^"]*(?:article|tit|title|subject)[^"]*"[^>]*>(?:<[^>]+>)*([^<]{4,120})/);
     const title = titleM ? titleM[1].trim() : '';
     if (!title || shouldExclude(title)) continue;
@@ -178,6 +204,9 @@ function parseArticlesFromPage(html, slug, today) {
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.status(200).end();
 
   const {
     keyword  = '',
@@ -190,16 +219,15 @@ export default async function handler(req, res) {
     cookie   = '',
   } = req.query;
 
-  if (keyword === 'ping') return res.status(200).json({ pong: true, _version: 'v8-fe-ssr' });
+  if (keyword === 'ping') return res.status(200).json({ pong: true, _version: 'v9-cafe-api' });
   if (!cafeId) return res.status(400).json({ error: 'cafeId 필요' });
 
   const today      = todayKST();
   const slug       = CAFE_SLUGS[String(cafeId)] || String(cafeId);
   const maxItems   = Math.min(200, parseInt(display) || 100);
   const startIdx   = Math.max(1, parseInt(start) || 1);
+  const hasCookie  = !!cookie;
 
-  // start 인덱스 → Naver 시작 페이지
-  // start=1   → page=1, start=101 → page=6 (NAVER_FE_PAGE_SIZE=20 기준)
   const batch          = Math.floor((startIdx - 1) / maxItems);
   const pagesPerBatch  = Math.ceil(maxItems / NAVER_FE_PAGE_SIZE);
   const startNaverPage = batch * pagesPerBatch + 1;
@@ -207,63 +235,133 @@ export default async function handler(req, res) {
   const debug = {
     firstStatus: null, firstError: null, htmlSize: 0,
     firstCardCount: null, firstSnippet: '', method: null, pages: 0,
+    hasCookie,
   };
 
   const allItems = [];
   const seen     = new Set();
+  let methodUsed = 'none';
 
-  for (let p = startNaverPage; p < startNaverPage + pagesPerBatch; p++) {
-    let result;
-    try {
-      result = await fetchNaverPage(cafeId, menuId, p, cookie || null);
-    } catch (e) {
-      if (p === startNaverPage) debug.firstError = `fetch: ${e.message}`;
-      break;
-    }
-
-    debug.pages++;
-    if (p === startNaverPage) {
-      debug.firstStatus = result.status;
-      debug.htmlSize    = result.html.length;
-    }
-
-    if (!result.ok) {
-      if (p === startNaverPage) debug.firstError = `HTTP ${result.status}`;
-      break;
-    }
-
-    const pageItems = parseArticlesFromPage(result.html, slug, today);
-
-    if (p === startNaverPage) {
-      debug.firstCardCount = pageItems.length;
-      debug.method         = pageItems[0]?._method || 'none';
-      if (!pageItems.length) {
-        debug.firstSnippet = result.html
-          .replace(/<script[\s\S]*?<\/script>/gi, '')
-          .replace(/<style[\s\S]*?<\/style>/gi, '')
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim()
-          .slice(0, 300);
+  // ── 1순위: ca-fe API (쿠키 있을 때만 시도) ─────────────────────
+  if (hasCookie) {
+    for (let p = startNaverPage; p < startNaverPage + pagesPerBatch; p++) {
+      let list = null;
+      try {
+        list = await fetchCafeApiPage(cafeId, menuId, p, cookie);
+      } catch (e) {
+        if (p === startNaverPage) debug.firstError = `ca-fe: ${e.message}`;
+        break;
       }
+
+      debug.pages++;
+      if (p === startNaverPage) debug.method = 'ca-fe-api';
+
+      if (!list) {
+        if (p === startNaverPage) {
+          debug.firstError = debug.firstError || 'ca-fe: null response (쿠키 만료 또는 API 구조 변경)';
+        }
+        break;
+      }
+
+      if (p === startNaverPage) debug.firstCardCount = list.length;
+      if (!list.length) break;
+
+      let hitOld = false;
+      for (const item of list) {
+        const link = `https://cafe.naver.com/${slug}/${item.articleId || item.id}`;
+        if (seen.has(link)) continue;
+        seen.add(link);
+
+        const title = String(item.subject || item.title || '').trim();
+        if (!title || shouldExclude(title)) continue;
+
+        const dateRaw = item.writeDateTimestamp || item.writeDate || item.regDate || '';
+        const _date   = parseDateText(String(dateRaw), today) || today;
+
+        if (dateFrom && _date < dateFrom) { hitOld = true; continue; }
+        if (dateTo   && _date > dateTo)   continue;
+        if (allItems.length >= maxItems) break;
+
+        allItems.push({
+          title,
+          link,
+          description: String(item.contentSummary || item.summary || '').replace(/<[^>]+>/g, ' ').trim(),
+          _date,
+          postdate: _date.replace(/-/g, ''),
+        });
+      }
+
+      if (hitOld || allItems.length >= maxItems || list.length < NAVER_FE_PAGE_SIZE) break;
     }
 
-    if (!pageItems.length) break;
+    // ca-fe API로 결과 얻었으면 바로 반환
+    if (allItems.length > 0 || (debug.method === 'ca-fe-api' && !debug.firstError)) {
+      methodUsed = 'ca-fe-api';
+    }
+  }
 
-    let hitOld = false;
-    for (const item of pageItems) {
-      if (seen.has(item.link)) continue;
-      seen.add(item.link);
+  // ── 2순위: f-e SSR 파싱 (ca-fe 실패 또는 쿠키 없을 때) ───────
+  if (allItems.length === 0) {
+    const seenFe = new Set();
+    for (let p = startNaverPage; p < startNaverPage + pagesPerBatch; p++) {
+      let result;
+      try {
+        result = await fetchNaverPage(cafeId, menuId, p, cookie || null);
+      } catch (e) {
+        if (p === startNaverPage) debug.firstError = `fetch: ${e.message}`;
+        break;
+      }
 
-      if (dateFrom && item._date < dateFrom) { hitOld = true; continue; }
-      if (dateTo   && item._date > dateTo)   continue;
-      if (allItems.length >= maxItems) break;
+      debug.pages++;
+      if (p === startNaverPage) {
+        debug.firstStatus = result.status;
+        debug.htmlSize    = result.html.length;
+      }
 
-      const { _method, ...rest } = item;
-      allItems.push(rest);
+      if (!result.ok) {
+        if (p === startNaverPage) debug.firstError = `HTTP ${result.status}`;
+        break;
+      }
+
+      const pageItems = parseArticlesFromPage(result.html, slug, today);
+
+      if (p === startNaverPage) {
+        debug.firstCardCount = pageItems.length;
+        debug.method         = pageItems[0]?._method || (hasCookie ? 'f-e-ssr-auth' : 'f-e-ssr-noauth');
+        if (!pageItems.length) {
+          debug.firstSnippet = result.html
+            .replace(/<script[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[\s\S]*?<\/style>/gi, '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 300);
+          if (!hasCookie) {
+            debug.firstError = (debug.firstError || '') +
+              ' 쿠키 없음: 네이버 로그인 세션 쿠키(NID_AUT;NID_SES)를 입력하면 수집 가능합니다.';
+          }
+        }
+      }
+
+      if (!pageItems.length) break;
+
+      let hitOld = false;
+      for (const item of pageItems) {
+        if (seenFe.has(item.link)) continue;
+        seenFe.add(item.link);
+
+        if (dateFrom && item._date < dateFrom) { hitOld = true; continue; }
+        if (dateTo   && item._date > dateTo)   continue;
+        if (allItems.length >= maxItems) break;
+
+        const { _method, ...rest } = item;
+        allItems.push(rest);
+      }
+
+      if (hitOld || allItems.length >= maxItems) break;
     }
 
-    if (hitOld || allItems.length >= maxItems) break;
+    if (allItems.length > 0) methodUsed = debug.method || 'f-e-ssr';
   }
 
   return res.status(200).json({
@@ -272,8 +370,9 @@ export default async function handler(req, res) {
     _anchors:       allItems.length,
     _interpolated:  0,
     _noInfo:        0,
-    _source:        'cafe.naver.com(f-e-ssr)',
-    _version:       'v8-fe-ssr',
+    _source:        'cafe.naver.com',
+    _version:       'v9-cafe-api',
+    _method:        methodUsed,
     _debug:         debug,
   });
 }

@@ -229,9 +229,9 @@ tbody tr:hover td{background:#1c2128}
           <input type="checkbox" value="dc_cpb26">
           <div class="site-label"><strong>DC인사이드</strong><small>mgallery · com2usbaseball</small></div>
         </label>
-        <label class="site-item" style="opacity:.4;cursor:not-allowed">
-          <input type="checkbox" value="naver_cpb26" disabled>
-          <div class="site-label"><strong>네이버카페</strong><small>준비 중 · cafeid:27851354</small></div>
+        <label class="site-item">
+          <input type="checkbox" value="naver_cpb26">
+          <div class="site-label"><strong>네이버카페</strong><small>cafeid:27851354</small></div>
         </label>
       </div>
 
@@ -242,9 +242,9 @@ tbody tr:hover td{background:#1c2128}
           <input type="checkbox" value="dc_9innings">
           <div class="site-label"><strong>DC인사이드</strong><small>mgallery · mlbgame</small></div>
         </label>
-        <label class="site-item" style="opacity:.4;cursor:not-allowed">
-          <input type="checkbox" value="naver_9innings" disabled>
-          <div class="site-label"><strong>네이버카페</strong><small>준비 중 · cafeid:28683505</small></div>
+        <label class="site-item">
+          <input type="checkbox" value="naver_9innings">
+          <div class="site-label"><strong>네이버카페</strong><small>cafeid:28683505</small></div>
         </label>
       </div>
 
@@ -255,18 +255,11 @@ tbody tr:hover td{background:#1c2128}
   <div class="card" id="naverCard" style="display:none">
     <div class="card-title">🔗 네이버카페 수집 설정</div>
 
-    <!-- 로그인 정보 (비공개 카페 접근 시 필요) -->
-    <div class="grid-2" style="margin-bottom:4px">
-      <div class="field">
-        <label class="field-label">🔐 네이버 아이디 <span class="opt-badge">선택</span></label>
-        <input type="text" id="naverId" placeholder="아이디" autocomplete="username">
-        <span class="field-hint">비공개 카페 접근 시 입력</span>
-      </div>
-      <div class="field">
-        <label class="field-label">🔑 비밀번호 <span class="opt-badge">선택</span></label>
-        <input type="password" id="naverPw" placeholder="비밀번호" autocomplete="current-password">
-        <span class="field-hint">공개 카페는 로그인 없이도 수집됩니다</span>
-      </div>
+    <!-- 세션 쿠키 입력 -->
+    <div class="field" style="margin-bottom:8px">
+      <label class="field-label">🍪 네이버 세션 쿠키 <span class="opt-badge">필수</span></label>
+      <input type="password" id="naverCookie" placeholder="NID_AUT=xxxx;NID_SES=yyyy" autocomplete="off">
+      <span class="field-hint">크롬 → cafe.naver.com 로그인 → F12 → Application → Cookies → NID_AUT 값과 NID_SES 값을 <strong>NID_AUT=값;NID_SES=값</strong> 형태로 붙여넣기</span>
     </div>
 
     <!-- 컴프야26 설정 -->
@@ -1089,12 +1082,13 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log) {
 const NAVER_PAGE_SIZE  = 100;
 const NAVER_MAX_START  = 301;
 
-// options: { naverId, naverPw, menuId, pageMode, pageCount }
+// options: { cookie, menuId, pageMode, pageCount }
 async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, log, statusKey, customKeywords=[], options={}) {
-  const { naverId='', naverPw='', menuId=0, pageMode=false, pageCount=2 } = options;
+  const { cookie='', menuId=0, pageMode=false, pageCount=2 } = options;
   const modeLabel = pageMode ? `${pageCount}페이지 모드` : '기간 모드';
   const menuLabel = menuId ? ` (메뉴ID:${menuId})` : '';
-  log(`네이버카페 [${cafeName}] 수집 시작 (cafeid:${cafeId}${menuLabel}) — ${modeLabel}`, 'info');
+  const cookieLabel = cookie ? ' 🍪쿠키' : ' (쿠키없음)';
+  log(`네이버카페 [${cafeName}] 수집 시작 (cafeid:${cafeId}${menuLabel}${cookieLabel}) — ${modeLabel}`, 'info');
 
   // 네이버 카페는 키워드 필터링 없이 항상 카페 전체글 수집 (기간 필터만 적용)
   // 다른 사이트(DC/공식)와 달리 keyword를 무시함 — 사용자 의도: "수집 기간 내 모든 게시물"
@@ -1116,8 +1110,7 @@ async function scrapeNaverCafeAPI(cafeName, cafeId, gameName, dateFrom, dateTo, 
     while (start < maxStart) {
       try {
         const params = new URLSearchParams({ keyword: kw, cafeId, menuId, display: NAVER_PAGE_SIZE, start, dateFrom: effectiveDateFrom, dateTo: effectiveDateTo });
-        if (naverId) params.set('naverId', naverId);
-        if (naverPw)  params.set('naverPw', naverPw);
+        if (cookie) params.set('cookie', cookie);
         // 1순위 /cafe (별칭) → 2순위 /api/naver — 사파리 /api/* 차단 회피
         let res = null, lastErr = '';
         for (const apiPath of ['/cafe', '/api/naver']) {
@@ -1432,7 +1425,7 @@ function setProgress(pct, status) {
 // ── Start ──────────────────────────────────────────────────────
 document.getElementById('btnStart').addEventListener('click', async () => {
   if (isRunning) return;
-  const sites = [...document.querySelectorAll('.site-item input:checked')].map(e=>e.value);
+  let sites = [...document.querySelectorAll('.site-item input:checked')].map(e=>e.value);
   const cats  = new Set([...document.querySelectorAll('.cat-btn.on')].map(e=>e.dataset.cat));
   if (!sites.length) { alert('수집 사이트를 선택하세요.'); return; }
   if (!cats.size)    { alert('카테고리를 선택하세요.'); return; }
@@ -1450,8 +1443,6 @@ document.getElementById('btnStart').addEventListener('click', async () => {
   const btnStart = document.getElementById('btnStart');
   btnStart.disabled = true;
   btnStart.innerHTML = '<span class="spin"></span><span>수집 중...</span>';
-
-  // 네이버 카페 수집 비활성화로 인해 진단 ping 제거
 
   document.getElementById('progressSection').style.display = 'block';
   document.getElementById('resultsSection').style.display  = 'none';
@@ -1502,10 +1493,38 @@ document.getElementById('btnStart').addEventListener('click', async () => {
     }
 
     // 네이버 수집 옵션 (카드에서 읽기)
-    const naverLoginId  = document.getElementById('naverId')?.value.trim() || '';
-    const naverLoginPw  = document.getElementById('naverPw')?.value || '';
+    const naverCookie   = document.getElementById('naverCookie')?.value.trim() || '';
     const naverPageMode = document.querySelector('input[name=naverMode]:checked')?.value === 'pages';
     const naverPageCnt  = parseInt(document.getElementById('naverPageCount')?.value) || 2;
+
+    const hasNaver = sites.includes('naver_cpb26') || sites.includes('naver_9innings');
+    if (hasNaver) {
+      // API 접근 가능 여부 ping 체크
+      log('네이버카페 API 연결 확인 중...', 'info');
+      let apiOk = false;
+      for (const apiPath of ['/cafe', '/api/naver']) {
+        try {
+          const ctrl = new AbortController();
+          const tid  = setTimeout(() => ctrl.abort(), 6000);
+          const pr   = await fetch(`${apiPath}?keyword=ping`, { signal: ctrl.signal, cache: 'no-store', credentials: 'omit' });
+          clearTimeout(tid);
+          if (pr.ok) { apiOk = true; break; }
+        } catch {}
+      }
+      if (!apiOk) {
+        log('❌ 네이버 API 연결 실패 — 이 도구는 Vercel에 배포된 상태에서만 네이버카페 수집이 가능합니다.', 'err');
+        log('   배포 방법: GitHub에 올린 뒤 vercel.com에서 연결 → 배포. 로컬 HTML 파일로 실행 시에는 지원되지 않습니다.', 'warn');
+        if (!naverCookie) {
+          log('   또한 세션 쿠키가 비어 있습니다. 크롬 → cafe.naver.com 로그인 → F12 → Application → Cookies에서 NID_AUT, NID_SES 값을 입력하세요.', 'warn');
+        }
+        // 네이버 사이트는 건너뜀
+        sites = sites.filter(s => !s.startsWith('naver_'));
+      } else {
+        if (!naverCookie) {
+          log('⚠️  세션 쿠키 없이 수집 시도 — 비공개 글은 수집되지 않을 수 있습니다.', 'warn');
+        }
+      }
+    }
 
     // 네이버카페 — 컴프야26
     if (sites.includes('naver_cpb26')) {
@@ -1513,7 +1532,7 @@ document.getElementById('btnStart').addEventListener('click', async () => {
       const mId  = parseInt(document.getElementById('menuId_cpb26')?.value) || 0;
       log('=== 네이버카페 컴프야26 수집 시작 ===', 'info');
       const p = await scrapeNaverCafeAPI('컴프야26', cId, '컴프야26', dateFrom, dateTo, log, 'cpb26', userKeywords,
-        { naverId: naverLoginId, naverPw: naverLoginPw, menuId: mId, pageMode: naverPageMode, pageCount: naverPageCnt });
+        { cookie: naverCookie, menuId: mId, pageMode: naverPageMode, pageCount: naverPageCnt });
       allPosts.push(...p);
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
     }
@@ -1524,7 +1543,7 @@ document.getElementById('btnStart').addEventListener('click', async () => {
       const mId  = parseInt(document.getElementById('menuId_9innings')?.value) || 0;
       log('=== 네이버카페 MLB9이닝스 수집 시작 ===', 'info');
       const p = await scrapeNaverCafeAPI('MLB9이닝스', cId, 'MLB9이닝스', dateFrom, dateTo, log, '9innings', userKeywords,
-        { naverId: naverLoginId, naverPw: naverLoginPw, menuId: mId, pageMode: naverPageMode, pageCount: naverPageCnt });
+        { cookie: naverCookie, menuId: mId, pageMode: naverPageMode, pageCount: naverPageCnt });
       allPosts.push(...p);
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
     }
