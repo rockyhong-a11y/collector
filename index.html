@@ -151,7 +151,7 @@ tbody tr:hover td{background:#1c2128}
     <h1>⚾ 야구 게임 커뮤니티 수집 툴</h1>
     <span class="badge">v5.0</span>
   </div>
-  <div class="header-right">DC인사이드 · 공식 커뮤니티 · 네이버카페</div>
+  <div class="header-right">DC인사이드 · 공식 커뮤니티 · 네이버카페 · 에펨코리아</div>
 </header>
 
 <div class="container">
@@ -187,6 +187,10 @@ tbody tr:hover td{background:#1c2128}
           <input type="checkbox" value="cpbv_official" checked>
           <div class="site-label"><strong>공식 커뮤니티</strong><small>cpbv-community.com2us.com</small></div>
         </label>
+        <label class="site-item">
+          <input type="checkbox" value="fm_cpyv">
+          <div class="site-label"><strong>에펨코리아</strong><small>baseball_game · 컴프야V 카테고리</small></div>
+        </label>
       </div>
 
       <!-- MLB라이벌 -->
@@ -199,6 +203,10 @@ tbody tr:hover td{background:#1c2128}
         <label class="site-item checked">
           <input type="checkbox" value="rivals_official" checked>
           <div class="site-label"><strong>공식 커뮤니티</strong><small>community.withhive.com/MLB9IRIVALS</small></div>
+        </label>
+        <label class="site-item">
+          <input type="checkbox" value="fm_rivals">
+          <div class="site-label"><strong>에펨코리아</strong><small>baseball_game · MLB라이벌 카테고리</small></div>
         </label>
       </div>
 
@@ -816,6 +824,86 @@ async function scrapeRivalsOfficial(dateFrom, dateTo, log) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+//  에펨코리아 SCRAPER
+// ═══════════════════════════════════════════════════════════════
+const FM_BOARDS = {
+  fm_cpyv:   { game: '컴프야V',   category: '6775340805' },
+  fm_rivals: { game: 'MLB라이벌', category: '6775341164' },
+};
+
+async function scrapeFmkorea(siteKey, dateFrom, dateTo, log) {
+  const { game, category } = FM_BOARDS[siteKey];
+  const BASE = `https://www.fmkorea.com/index.php?mid=baseball_game&category=${category}`;
+  const posts = [];
+  const seenUrls = new Set();
+
+  log(`에펨코리아 ${game} 수집 시작`, 'info');
+
+  for (let page = 1; page <= 15; page++) {
+    const url = `${BASE}&page=${page}`;
+    log(`  에펨코리아 ${game} 페이지 ${page}`, 'info');
+    const html = await proxyGet(url, 12000);
+    if (!html || html.length < 1000) { log(`    → 응답 없음/차단`, 'warn'); break; }
+
+    // tbody 안 tr 행 추출
+    const tbodyM = html.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i);
+    if (!tbodyM) { log(`    → tbody 없음`, 'warn'); break; }
+    const tbody = tbodyM[1];
+
+    const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    let rowMatch;
+    let oldestDate = '9999', pageCount = 0;
+
+    while ((rowMatch = rowRe.exec(tbody)) !== null) {
+      const row = rowMatch[1];
+
+      // 공지 행 스킵
+      if (/class="[^"]*notice/.test(rowMatch[0])) continue;
+
+      // 제목 링크 (댓글 앵커 #xxx 제외)
+      const linkM = row.match(/href="(\/index\.php\?[^"#]*document_srl=(\d+)[^"#]*)"/);
+      if (!linkM) continue;
+      const href = linkM[1];
+      const postUrl = 'https://www.fmkorea.com' + href;
+      if (seenUrls.has(postUrl)) continue;
+      seenUrls.add(postUrl);
+
+      // 제목 텍스트: .title a 첫 번째 텍스트 노드
+      const titleM = row.match(/<td[^>]*class="[^"]*title[^"]*"[^>]*>[\s\S]*?<a[^>]*href="[^"]*document_srl=\d+[^"]*"[^>]*>([\s\S]*?)<\/a>/i);
+      const title = titleM ? esc(stripTags(titleM[1])).trim() : '';
+      if (!title || title.length < 2) continue;
+
+      // 날짜: td.time
+      const dateM = row.match(/<td[^>]*class="[^"]*time[^"]*"[^>]*>([^<]+)<\/td>/i);
+      const dateStr = dateM ? DATE.parse(dateM[1].trim()) : null;
+      if (!dateStr || !DATE.isReasonable(dateStr)) continue;
+
+      if (dateStr < oldestDate) oldestDate = dateStr;
+      if (!DATE.inRange(dateStr, dateFrom, dateTo)) continue;
+
+      posts.push({
+        title,
+        url: postUrl,
+        date: dateStr,
+        views: '0',
+        source: `에펨코리아(${game})`,
+        game,
+        body: '',
+        images: [],
+      });
+      pageCount++;
+    }
+
+    log(`    → ${pageCount}건, 최소날짜=${oldestDate}`);
+    if (oldestDate !== '9999' && oldestDate < dateFrom) break;
+    if (pageCount === 0 && page > 1) break;
+    await sleep(1200);
+  }
+
+  return posts;
+}
+
+// ═══════════════════════════════════════════════════════════════
 //  네이버카페 API SCRAPER (Vercel 서버리스 경유)
 // ═══════════════════════════════════════════════════════════════
 const NAVER_PAGE_SIZE  = 100;
@@ -1105,6 +1193,17 @@ document.getElementById('btnStart').addEventListener('click', async () => {
       const p = await scrapeRivalsOfficial(dateFrom, dateTo, log);
       allPosts.push(...p);
       log(`MLB라이벌 공식 완료: ${p.length}건`);
+      doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
+    }
+
+    // 에펨코리아
+    for (const key of ['fm_cpyv', 'fm_rivals']) {
+      if (!sites.includes(key)) continue;
+      const { game } = FM_BOARDS[key];
+      log(`=== 에펨코리아 ${game} 수집 시작 ===`, 'info');
+      const p = await scrapeFmkorea(key, dateFrom, dateTo, log);
+      allPosts.push(...p);
+      log(`에펨코리아 ${game} 완료: ${p.length}건`);
       doneSites++; setProgress(Math.round(doneSites/totalSites*80), `수집 중... (${doneSites}/${totalSites})`);
     }
 
