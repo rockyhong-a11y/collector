@@ -125,9 +125,8 @@ tbody tr:hover td{background:#1c2128}
 .btn-reset:hover{border-color:#8b949e;color:#e6edf3}
 .dl-note{font-size:11px;color:#6e7681}
 
-/* ── Dimmed site items ───────────────────────────────────── */
-.site-item.dimmed{opacity:.3;cursor:not-allowed;pointer-events:none;filter:grayscale(.6)}
-.site-item.dimmed input{pointer-events:none}
+/* ── Dimmed naver settings ───────────────────────────────── */
+.naver-settings-dimmed{opacity:.35;pointer-events:none;user-select:none}
 
 /* ── Spinner ─────────────────────────────────────────────── */
 .spin{width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
@@ -221,9 +220,9 @@ tbody tr:hover td{background:#1c2128}
           <input type="checkbox" value="dc_cpb26">
           <div class="site-label"><strong>DC인사이드</strong><small>mgallery · com2usbaseball</small></div>
         </label>
-        <label class="site-item dimmed">
-          <input type="checkbox" value="naver_cpb26" disabled>
-          <div class="site-label"><strong>네이버카페</strong><small>현재 미지원</small></div>
+        <label class="site-item">
+          <input type="checkbox" value="naver_cpb26">
+          <div class="site-label"><strong>네이버카페</strong><small>cafeid:27851354</small></div>
         </label>
       </div>
 
@@ -234,9 +233,9 @@ tbody tr:hover td{background:#1c2128}
           <input type="checkbox" value="dc_9innings">
           <div class="site-label"><strong>DC인사이드</strong><small>mgallery · mlbgame</small></div>
         </label>
-        <label class="site-item dimmed">
-          <input type="checkbox" value="naver_9innings" disabled>
-          <div class="site-label"><strong>네이버카페</strong><small>현재 미지원</small></div>
+        <label class="site-item">
+          <input type="checkbox" value="naver_9innings">
+          <div class="site-label"><strong>네이버카페</strong><small>cafeid:28683505</small></div>
         </label>
       </div>
 
@@ -247,57 +246,62 @@ tbody tr:hover td{background:#1c2128}
   <div class="card" id="naverCard" style="display:none">
     <div class="card-title">🔗 네이버카페 수집 설정</div>
 
-    <!-- 세션 쿠키 입력 (선택) -->
-    <div class="field" style="margin-bottom:8px">
-      <label class="field-label">🍪 네이버 세션 쿠키 <span class="opt-badge" style="background:#2a5200;color:#7fff67">선택</span></label>
-      <input type="password" id="naverCookie" placeholder="(선택) NID_AUT=xxxx;NID_SES=yyyy — 비워도 공개 게시글 수집 가능" autocomplete="off">
-      <span class="field-hint">공개 카페는 쿠키 없이도 수집됩니다. 비공개/회원 전용 글이 필요한 경우에만 입력: 크롬 → cafe.naver.com 로그인 → F12 → Application → Cookies → NID_AUT, NID_SES 값을 <strong>NID_AUT=값;NID_SES=값</strong> 형태로 붙여넣기</span>
-    </div>
+    <!-- 설정 항목 (딤드 — 현재 미지원) -->
+    <div class="naver-settings-dimmed">
 
-    <!-- 컴프야26 설정 -->
-    <div class="naver-cafe-config" id="naverConfig_cpb26" style="display:none">
-      <div class="naver-cafe-config-title"><span class="game-dot dot-cpb26" style="width:8px;height:8px;border-radius:50%;background:#d2a8ff;display:inline-block"></span>컴프야26</div>
-      <div class="grid-2">
-        <div class="field">
-          <label class="field-label">📌 카페 고유 ID</label>
-          <input type="text" id="cafeId_cpb26" value="27851354">
-        </div>
-        <div class="field">
-          <label class="field-label">📋 메뉴 ID (0=전체, 16=질문, 5=공지)</label>
-          <input type="number" id="menuId_cpb26" value="0" min="0" style="max-width:120px">
+      <!-- 세션 쿠키 입력 (선택) -->
+      <div class="field" style="margin-bottom:8px">
+        <label class="field-label">🍪 네이버 세션 쿠키 <span class="opt-badge" style="background:#2a5200;color:#7fff67">선택</span></label>
+        <input type="password" id="naverCookie" placeholder="(선택) NID_AUT=xxxx;NID_SES=yyyy — 비워도 공개 게시글 수집 가능" autocomplete="off">
+        <span class="field-hint">공개 카페는 쿠키 없이도 수집됩니다. 비공개/회원 전용 글이 필요한 경우에만 입력: 크롬 → cafe.naver.com 로그인 → F12 → Application → Cookies → NID_AUT, NID_SES 값을 <strong>NID_AUT=값;NID_SES=값</strong> 형태로 붙여넣기</span>
+      </div>
+
+      <!-- 컴프야26 설정 -->
+      <div class="naver-cafe-config" id="naverConfig_cpb26" style="display:none">
+        <div class="naver-cafe-config-title"><span class="game-dot dot-cpb26" style="width:8px;height:8px;border-radius:50%;background:#d2a8ff;display:inline-block"></span>컴프야26</div>
+        <div class="grid-2">
+          <div class="field">
+            <label class="field-label">📌 카페 고유 ID</label>
+            <input type="text" id="cafeId_cpb26" value="27851354">
+          </div>
+          <div class="field">
+            <label class="field-label">📋 메뉴 ID (0=전체, 16=질문, 5=공지)</label>
+            <input type="number" id="menuId_cpb26" value="0" min="0" style="max-width:120px">
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- MLB9이닝스 설정 -->
-    <div class="naver-cafe-config" id="naverConfig_9innings" style="display:none">
-      <div class="naver-cafe-config-title"><span class="game-dot dot-9innings" style="width:8px;height:8px;border-radius:50%;background:#7ee787;display:inline-block"></span>MLB9이닝스</div>
-      <div class="grid-2">
-        <div class="field">
-          <label class="field-label">📌 카페 고유 ID</label>
-          <input type="text" id="cafeId_9innings" value="28683505">
-        </div>
-        <div class="field">
-          <label class="field-label">📋 메뉴 ID (0=전체)</label>
-          <input type="number" id="menuId_9innings" value="0" min="0" style="max-width:120px">
+      <!-- MLB9이닝스 설정 -->
+      <div class="naver-cafe-config" id="naverConfig_9innings" style="display:none">
+        <div class="naver-cafe-config-title"><span class="game-dot dot-9innings" style="width:8px;height:8px;border-radius:50%;background:#7ee787;display:inline-block"></span>MLB9이닝스</div>
+        <div class="grid-2">
+          <div class="field">
+            <label class="field-label">📌 카페 고유 ID</label>
+            <input type="text" id="cafeId_9innings" value="28683505">
+          </div>
+          <div class="field">
+            <label class="field-label">📋 메뉴 ID (0=전체)</label>
+            <input type="number" id="menuId_9innings" value="0" min="0" style="max-width:120px">
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- 수집 모드 -->
-    <div class="naver-mode-row">
-      <label class="naver-mode-opt">
-        <input type="radio" name="naverMode" value="date" id="naverModeDate" checked>
-        <span>📅 기간으로 수집</span>
-        <span class="field-hint">(상단 날짜 범위 사용)</span>
-      </label>
-      <label class="naver-mode-opt">
-        <input type="radio" name="naverMode" value="pages" id="naverModePages">
-        <span>📄 페이지 수로 수집</span>
-        <input type="number" id="naverPageCount" value="2" min="1" max="20">
-        <span class="field-hint">페이지 (1페이지=50건)</span>
-      </label>
-    </div>
+      <!-- 수집 모드 -->
+      <div class="naver-mode-row">
+        <label class="naver-mode-opt">
+          <input type="radio" name="naverMode" value="date" id="naverModeDate" checked>
+          <span>📅 기간으로 수집</span>
+          <span class="field-hint">(상단 날짜 범위 사용)</span>
+        </label>
+        <label class="naver-mode-opt">
+          <input type="radio" name="naverMode" value="pages" id="naverModePages">
+          <span>📄 페이지 수로 수집</span>
+          <input type="number" id="naverPageCount" value="2" min="1" max="20">
+          <span class="field-hint">페이지 (1페이지=50건)</span>
+        </label>
+      </div>
+
+    </div><!-- /naver-settings-dimmed -->
 
     <!-- 수집 상태 -->
     <div class="naver-status" style="margin-top:14px;padding-top:12px;border-top:1px solid #21262d">
@@ -1091,10 +1095,12 @@ let isRunning = false;
 
 // Site item checked state + show/hide Naver card
 function syncNaverCard() {
-  // 네이버카페 항목이 dimmed(미지원) 상태이므로 카드는 항상 숨김
-  document.getElementById('naverCard').style.display            = 'none';
-  document.getElementById('naverConfig_cpb26').style.display    = 'none';
-  document.getElementById('naverConfig_9innings').style.display  = 'none';
+  const cpb26   = !!document.querySelector('.site-item input[value=naver_cpb26]:checked');
+  const innings = !!document.querySelector('.site-item input[value=naver_9innings]:checked');
+  const anyNaver = cpb26 || innings;
+  document.getElementById('naverCard').style.display            = anyNaver ? 'block' : 'none';
+  document.getElementById('naverConfig_cpb26').style.display    = cpb26   ? 'block' : 'none';
+  document.getElementById('naverConfig_9innings').style.display  = innings ? 'block' : 'none';
 }
 document.querySelectorAll('.site-item input').forEach(cb => {
   cb.addEventListener('change', () => {
