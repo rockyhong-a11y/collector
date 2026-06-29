@@ -121,8 +121,8 @@ async function fetchViaAllorigins(url) {
   return json.contents || ''
 }
 
-async function fetchFmHtml(url) {
-  const workerUrl   = (typeof process !== 'undefined' && process.env?.CF_WORKER_URL)   || ''
+async function fetchFmHtml(url, cfWorkerFromClient = '') {
+  const workerUrl   = cfWorkerFromClient || (typeof process !== 'undefined' && process.env?.CF_WORKER_URL)   || ''
   const scraperKey  = (typeof process !== 'undefined' && process.env?.SCRAPERAPI_KEY)  || ''
 
   // 1순위: Cloudflare Worker 프록시 (CF 내부망 → 차단 우회 가능, 무료)
@@ -181,10 +181,12 @@ export default async function handler(req) {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS })
 
   const url = new URL(req.url)
-  const category = url.searchParams.get('category') || ''
-  const page     = Math.max(1, parseInt(url.searchParams.get('page') || '1'))
-  const dateFrom = url.searchParams.get('dateFrom') || ''
-  const dateTo   = url.searchParams.get('dateTo') || ''
+  const category     = url.searchParams.get('category') || ''
+  const page         = Math.max(1, parseInt(url.searchParams.get('page') || '1'))
+  const dateFrom     = url.searchParams.get('dateFrom') || ''
+  const dateTo       = url.searchParams.get('dateTo') || ''
+  // 클라이언트에서 전달된 CF Worker URL (env var 없이도 동작)
+  const cfWorkerFromClient = url.searchParams.get('cfWorkerUrl') || ''
 
   const json = (obj, status = 200) =>
     new Response(JSON.stringify(obj, null, 0), { status, headers: CORS })
@@ -194,7 +196,7 @@ export default async function handler(req) {
 
   const fmUrl = `https://www.fmkorea.com/index.php?mid=baseball_game&category=${category}&page=${page}`
   const today = todayKst()
-  const { html, via } = await fetchFmHtml(fmUrl)
+  const { html, via } = await fetchFmHtml(fmUrl, cfWorkerFromClient)
 
   if (!html) {
     return json({ items: [], page, hitOld: false, _error: `수집 실패 (${via})`, _via: via })
