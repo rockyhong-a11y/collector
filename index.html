@@ -125,6 +125,10 @@ tbody tr:hover td{background:#1c2128}
 .btn-reset:hover{border-color:#8b949e;color:#e6edf3}
 .dl-note{font-size:11px;color:#6e7681}
 
+/* ── Dimmed site items ───────────────────────────────────── */
+.site-item.dimmed{opacity:.3;cursor:not-allowed;pointer-events:none;filter:grayscale(.6)}
+.site-item.dimmed input{pointer-events:none}
+
 /* ── Spinner ─────────────────────────────────────────────── */
 .spin{width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -179,12 +183,12 @@ tbody tr:hover td{background:#1c2128}
       <!-- 컴프야V -->
       <div class="game-group">
         <div class="game-group-title"><span class="game-dot dot-cpyv"></span>컴프야V</div>
-        <label class="site-item checked">
-          <input type="checkbox" value="dc_cpyv" checked>
+        <label class="site-item">
+          <input type="checkbox" value="dc_cpyv">
           <div class="site-label"><strong>DC인사이드</strong><small>mgallery · cpyv22</small></div>
         </label>
-        <label class="site-item checked">
-          <input type="checkbox" value="cpbv_official" checked>
+        <label class="site-item">
+          <input type="checkbox" value="cpbv_official">
           <div class="site-label"><strong>공식 커뮤니티</strong><small>cpbv-community.com2us.com</small></div>
         </label>
         <label class="site-item">
@@ -196,12 +200,12 @@ tbody tr:hover td{background:#1c2128}
       <!-- MLB라이벌 -->
       <div class="game-group">
         <div class="game-group-title"><span class="game-dot dot-rivals"></span>MLB라이벌</div>
-        <label class="site-item checked">
-          <input type="checkbox" value="dc_rivals" checked>
+        <label class="site-item">
+          <input type="checkbox" value="dc_rivals">
           <div class="site-label"><strong>DC인사이드</strong><small>mgallery · 9inningsrivals</small></div>
         </label>
-        <label class="site-item checked">
-          <input type="checkbox" value="rivals_official" checked>
+        <label class="site-item">
+          <input type="checkbox" value="rivals_official">
           <div class="site-label"><strong>공식 커뮤니티</strong><small>community.withhive.com/MLB9IRIVALS</small></div>
         </label>
         <label class="site-item">
@@ -217,9 +221,9 @@ tbody tr:hover td{background:#1c2128}
           <input type="checkbox" value="dc_cpb26">
           <div class="site-label"><strong>DC인사이드</strong><small>mgallery · com2usbaseball</small></div>
         </label>
-        <label class="site-item">
-          <input type="checkbox" value="naver_cpb26">
-          <div class="site-label"><strong>네이버카페</strong><small>cafeid:27851354</small></div>
+        <label class="site-item dimmed">
+          <input type="checkbox" value="naver_cpb26" disabled>
+          <div class="site-label"><strong>네이버카페</strong><small>현재 미지원</small></div>
         </label>
       </div>
 
@@ -230,9 +234,9 @@ tbody tr:hover td{background:#1c2128}
           <input type="checkbox" value="dc_9innings">
           <div class="site-label"><strong>DC인사이드</strong><small>mgallery · mlbgame</small></div>
         </label>
-        <label class="site-item">
-          <input type="checkbox" value="naver_9innings">
-          <div class="site-label"><strong>네이버카페</strong><small>cafeid:28683505</small></div>
+        <label class="site-item dimmed">
+          <input type="checkbox" value="naver_9innings" disabled>
+          <div class="site-label"><strong>네이버카페</strong><small>현재 미지원</small></div>
         </label>
       </div>
 
@@ -844,7 +848,7 @@ async function scrapeFmkorea(siteKey, dateFrom, dateTo, log) {
     for (const apiPath of ['/fmkorea', '/api/fmkorea']) {
       try {
         const ctrl = new AbortController();
-        const tid  = setTimeout(() => ctrl.abort(), 15000);
+        const tid  = setTimeout(() => ctrl.abort(), 28000);
         const params = new URLSearchParams({ category, page, dateFrom, dateTo });
         const r = await fetch(`${apiPath}?${params}`, { signal: ctrl.signal, cache: 'no-store', credentials: 'omit' });
         clearTimeout(tid);
@@ -856,10 +860,15 @@ async function scrapeFmkorea(siteKey, dateFrom, dateTo, log) {
     }
 
     if (!data) { log(`    → API 응답 없음`, 'err'); break; }
-    if (data._error) { log(`    → ${data._error}`, 'err'); break; }
+    if (data._error) {
+      log(`    → ${data._error}`, 'err');
+      if (data._snippet) log(`    HTML 앞부분: ${data._snippet.slice(0,200)}`, 'warn');
+      break;
+    }
 
     const items = data.items || [];
     log(`    → ${items.length}건 (htmlLen=${data._htmlLen||'?'})`);
+    if (items.length === 0 && data._snippet) log(`    HTML 앞부분: ${data._snippet.slice(0,200)}`, 'warn');
 
     let pageCount = 0;
     let oldestDate = '9999';
@@ -1082,12 +1091,10 @@ let isRunning = false;
 
 // Site item checked state + show/hide Naver card
 function syncNaverCard() {
-  const cpb26   = !!document.querySelector('.site-item input[value=naver_cpb26]:checked');
-  const innings = !!document.querySelector('.site-item input[value=naver_9innings]:checked');
-  const anyNaver = cpb26 || innings;
-  document.getElementById('naverCard').style.display           = anyNaver ? 'block' : 'none';
-  document.getElementById('naverConfig_cpb26').style.display   = cpb26   ? 'block' : 'none';
-  document.getElementById('naverConfig_9innings').style.display = innings ? 'block' : 'none';
+  // 네이버카페 항목이 dimmed(미지원) 상태이므로 카드는 항상 숨김
+  document.getElementById('naverCard').style.display            = 'none';
+  document.getElementById('naverConfig_cpb26').style.display    = 'none';
+  document.getElementById('naverConfig_9innings').style.display  = 'none';
 }
 document.querySelectorAll('.site-item input').forEach(cb => {
   cb.addEventListener('change', () => {
@@ -1187,20 +1194,27 @@ document.getElementById('btnStart').addEventListener('click', async () => {
     if (hasFm) {
       log('에펨코리아 API 연결 확인 중...', 'info');
       let fmOk = false;
+      let fmVia = '';
       for (const apiPath of ['/fmkorea', '/api/fmkorea']) {
         try {
           const ctrl = new AbortController();
-          const tid  = setTimeout(() => ctrl.abort(), 6000);
+          const tid  = setTimeout(() => ctrl.abort(), 15000);
           const pr   = await fetch(`${apiPath}?category=ping`, { signal: ctrl.signal, cache: 'no-store', credentials: 'omit' });
           clearTimeout(tid);
-          if (pr.ok) { const d = await pr.json().catch(()=>null); if (d?.pong) { fmOk = true; break; } }
+          if (pr.ok) {
+            const d = await pr.json().catch(()=>null);
+            if (d?.pong) { fmOk = true; fmVia = d._version || ''; break; }
+          }
         } catch {}
       }
       if (!fmOk) {
-        log('❌ 에펨코리아 API 연결 실패 — Vercel(collector-nu.vercel.app)에서만 수집 가능합니다. GitHub Pages에서는 동작하지 않습니다.', 'err');
+        log('❌ 에펨코리아 수집 불가 — Cloudflare IP 차단 (서버가 주거용 IP가 아님)', 'err');
+        log('   해결법: Vercel 환경변수 CF_WORKER_URL 또는 SCRAPERAPI_KEY 설정 필요', 'warn');
+        log('   ① CF Worker 무료: worker/fmproxy.js 를 Cloudflare Worker로 배포 후 CF_WORKER_URL 환경변수 추가', 'warn');
+        log('   ② ScraperAPI: scraperapi.com 가입(무료 1,000크레딧) → SCRAPERAPI_KEY 환경변수 추가', 'warn');
         sites = sites.filter(s => !s.startsWith('fm_'));
       } else {
-        log('✅ 에펨코리아 API 연결 확인됨', 'info');
+        log(`✅ 에펨코리아 API 연결 확인됨 (${fmVia})`, 'info');
       }
     }
 

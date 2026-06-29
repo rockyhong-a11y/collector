@@ -1,0 +1,5 @@
+# Vercel 배포에서 제외
+api/fmkorea.py
+server.js
+crawler.html
+worker/
